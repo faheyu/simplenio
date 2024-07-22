@@ -12,7 +12,12 @@ import java.util.concurrent.locks.ReentrantLock
 class SelectorThread : Thread() {
 
     companion object {
-        val logger = DebugLogger("SelectorThread")
+        private val logger = DebugLogger("SelectorThread")
+
+        /**
+         * prevent select loop too fast
+         */
+        const val MIN_SELECT_TIME = 500L
     }
 
     private class Registration(val ops: Int, val ioChannel: IOChannel)
@@ -81,7 +86,8 @@ class SelectorThread : Thread() {
                     pendingRegistrations.clear()
                 }
 
-                mSelector.select(500L)
+                sleep(MIN_SELECT_TIME)
+                mSelector.selectNow()
                 val it = mSelector.selectedKeys().iterator()
                 val startMills = System.currentTimeMillis()
 
