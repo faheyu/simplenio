@@ -17,10 +17,10 @@ class SelectorThread : Thread() {
         /**
          * prevent select loop too fast
          */
-        const val MIN_SELECT_TIME = 500L
+        const val MIN_SELECT_TIME = 100L
     }
 
-    private class Registration(val ops: Int, val ioChannel: IOChannel)
+    private class Registration(val ops: Int, val ioHandler: IOHandler)
 
     private val selectorLock = ReentrantLock()
 
@@ -41,9 +41,10 @@ class SelectorThread : Thread() {
         get() {
             selectorLock.lock()
             try {
+                // if selector has not opened yet, return registration count instead
                 if (!this::mSelector.isInitialized) {
                     return synchronized(pendingRegistrations) {
-                        pendingRegistrations.map { it.ioChannel }.toSet().size
+                        pendingRegistrations.map { it.ioHandler }.toSet().size
                     }
                 }
 
@@ -77,10 +78,10 @@ class SelectorThread : Thread() {
 
                 synchronized(pendingRegistrations) {
                     pendingRegistrations.forEach { registration ->
-                        registration.ioChannel.channel?.register(
+                        registration.ioHandler.channel?.register(
                             mSelector,
                             registration.ops,
-                            registration.ioChannel
+                            registration.ioHandler
                         )
                     }
                     pendingRegistrations.clear()
@@ -119,54 +120,51 @@ class SelectorThread : Thread() {
     }
 
     private fun handleKey(key: SelectionKey) {
-        val ioChannel = key.attachment() as IOChannel
+        val ioHandler = key.attachment() as IOHandler
 
         try {
-            if (ioChannel.channel == null) {
+            if (ioHandler.channel == null) {
                 key.cancel()
             } else {
                 var interestOps = key.interestOps()
 
                 if (key.isConnectable) {
-                    if (ioChannel.onConnected()) {
+                    if (ioHandler.onConnected()) {
                         interestOps = SelectionKey.OP_READ or SelectionKey.OP_WRITE
                     }
                 } else if (key.isValid) {
                     if (key.isReadable) {
-                        ioChannel.onRead()
+                        ioHandler.onRead()
                     }
                     if (key.isWritable) {
-                        ioChannel.onWrite()
+                        ioHandler.onWrite()
                     }
                 }
 
                 if (key.interestOps() != interestOps)
-                    register(ioChannel, interestOps)
+                    register(ioHandler, interestOps)
             }
         } catch (_: CancelledKeyException) {
 
         }
     }
 
-    fun register(ioChannel: IOChannel, ops: Int) {
+    fun register(ioHandler: IOHandler, ops: Int) {
         start()
 
+        // add to the queue, selector thread will register it later
         synchronized(pendingRegistrations) {
-            pendingRegistrations.addLast(Registration(ops, ioChannel))
+            pendingRegistrations.addLast(Registration(ops, ioHandler))
         }
 
-        selectorLock.lock()
-        if (this::mSelector.isInitialized) {
-            mSelector.wakeup()
-        }
-        selectorLock.unlock()
+        // we don't need to wake up selector to prevent blocking
+        // as we had queued this registration which will be registered in selector thread
     }
 
     fun stopThread() {
         selectorLock.lock()
         try {
             if (this::mSelector.isInitialized) {
-                mSelector.wakeup()
                 try {
                     mSelector.close()
                 } catch (_: IOException) {
@@ -180,19 +178,12 @@ class SelectorThread : Thread() {
         running = false
     }
 
-    fun closeChannel(ioChannel: IOChannel) {
-        synchronized(ioChannel) {
-            selectorLock.lock()
+    fun closeChannel(ioHandler: IOHandler) {
+        synchronized(ioHandler) {
             try {
-                if (this::mSelector.isInitialized) {
-                    mSelector.wakeup()
-                }
-
-                ioChannel.channel?.close()
+                ioHandler.channel?.close()
             } catch (e: Throwable) {
                 logger.e("closeChannel error", e)
-            } finally {
-                selectorLock.unlock()
             }
         }
     }

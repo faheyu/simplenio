@@ -12,12 +12,12 @@ object NIOManager {
     private val logger = DebugLogger("NIORunner")
 
     private const val MAX_PENDING_CONNECTIONS = 8
-    private val pendingConnections = LinkedBlockingQueue<IOChannel>(MAX_PENDING_CONNECTIONS)
+    private val pendingConnections = LinkedBlockingQueue<IOHandler>(MAX_PENDING_CONNECTIONS)
     private val connectContinuations = LinkedBlockingQueue<Continuation<Unit>>()
     private val connectExecutor = MyThreadPoolExecutor(MAX_PENDING_CONNECTIONS)
 
     private const val CHANNEL_PER_SELECTOR = 50
-    private val channelSelectorMap = HashMap<IOChannel, SelectorThread>()
+    private val channelSelectorMap = HashMap<IOHandler, SelectorThread>()
 
     /**
      * Stop all selector threads
@@ -31,29 +31,29 @@ object NIOManager {
     /**
      * close and remove channel from channel-selector map
      *
-     * @param ioChannel channel to close
+     * @param ioHandler channel to close
      */
-    fun closeChannel(ioChannel: IOChannel) {
-        getSelectorThread(ioChannel).closeChannel(ioChannel)
+    fun closeChannel(ioHandler: IOHandler) {
+        getSelectorThread(ioHandler).closeChannel(ioHandler)
         // remove from map
         synchronized(channelSelectorMap) {
-            channelSelectorMap.remove(ioChannel)
+            channelSelectorMap.remove(ioHandler)
         }
     }
 
     /**
      * request a connection, wait until connection queue is not full
      *
-     * @param ioChannel channel perform connection
+     * @param ioHandler channel perform connection
      * @param onConnect callback invoked when start connection
      */
-    fun pendingConnect(ioChannel: IOChannel, onConnect: suspend () -> Unit) {
+    fun pendingConnect(ioHandler: IOHandler, onConnect: suspend () -> Unit) {
         connectExecutor.launchCoroutine {
-            waitForPending(ioChannel)
+            waitForPending(ioHandler)
 
             withContext(Dispatchers.IO) {
                 onConnect()
-                register(ioChannel, SelectionKey.OP_CONNECT)
+                register(ioHandler, SelectionKey.OP_CONNECT)
             }
         }
     }
@@ -61,24 +61,24 @@ object NIOManager {
     /**
      * register a channel to a selector thread
      */
-    fun register(ioChannel: IOChannel, ops: Int) {
-        getSelectorThread(ioChannel).register(ioChannel, ops)
+    fun register(ioHandler: IOHandler, ops: Int) {
+        getSelectorThread(ioHandler).register(ioHandler, ops)
     }
 
 
     /**
      * get selector thread has minimum registered channels
      *
-     * @param ioChannel channel need to register
+     * @param ioHandler channel need to register
      */
-    private fun getSelectorThread(ioChannel: IOChannel) : SelectorThread {
+    private fun getSelectorThread(ioHandler: IOHandler) : SelectorThread {
         synchronized(channelSelectorMap) {
-            var selectorThread = channelSelectorMap[ioChannel]
+            var selectorThread = channelSelectorMap[ioHandler]
 
             if (selectorThread != null) {
                 if (selectorThread.channelCount > CHANNEL_PER_SELECTOR) {
                     // move this channel to other selector thread
-                    channelSelectorMap.remove(ioChannel)
+                    channelSelectorMap.remove(ioHandler)
                 } else {
                     return selectorThread
                 }
@@ -95,7 +95,7 @@ object NIOManager {
                 selectorThread = SelectorThread()
             }
 
-            channelSelectorMap[ioChannel] = selectorThread
+            channelSelectorMap[ioHandler] = selectorThread
             logger.d("getSelectorThread channel count: ${selectorThread.channelCount}")
             return selectorThread
         }
@@ -104,11 +104,11 @@ object NIOManager {
     /**
      * wait until connection queue is not full
      *
-     * @param ioChannel the channel add to the queue
+     * @param ioHandler the channel add to the queue
      */
-    private suspend fun waitForPending(ioChannel: IOChannel) {
+    private suspend fun waitForPending(ioHandler: IOHandler) {
         // try to add this channel to queue
-        while (!pendingConnections.offer(ioChannel)) {
+        while (!pendingConnections.offer(ioHandler)) {
             logger.d("waiting for pending: ${pendingConnections.size}")
 
             // suspend here until resumed (maybe by selector thread)
