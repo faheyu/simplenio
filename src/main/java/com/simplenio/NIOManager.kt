@@ -9,7 +9,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
 object NIOManager {
-    private val logger = DebugLogger("NIORunner")
+    private val logger = DebugLogger(NIOManager::class.java.simpleName)
 
     private const val MAX_PENDING_CONNECTIONS = 8
     private val pendingConnections = LinkedBlockingQueue<IOHandler>(MAX_PENDING_CONNECTIONS)
@@ -128,11 +128,14 @@ object NIOManager {
      */
     fun resumeConnect() {
         connectContinuations.poll()?.apply {
-            resume(Unit)
             // remove a channel from queue
             // so another connection can be queued
             // the queue should not be empty here
             pendingConnections.remove()
+
+            // resume after remove from queue
+            // to prevent queuing again
+            resume(Unit)
         }
     }
 }
