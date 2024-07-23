@@ -23,7 +23,7 @@ class DebugLogger(val tagName: String) {
 
     fun e(msg: String, e: Throwable) {
         if (!turnOn) return
-        println("[$ERROR][$tagName] $msg")
+        println("[$ERROR][$tagName] $msg\n${e.stackTraceToString()}")
     }
 
     fun i(msg: String) {
