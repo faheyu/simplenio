@@ -55,4 +55,13 @@ class Pauser {
         }
     }
 
+    /**
+     * reset so we can pause again
+     */
+    fun reset() {
+        synchronized(this) {
+            continuation = null
+        }
+    }
+
 }
