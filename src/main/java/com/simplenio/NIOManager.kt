@@ -11,30 +11,30 @@ import kotlin.coroutines.suspendCoroutine
 object NIOManager {
     private val logger = DebugLogger(NIOManager::class.java.simpleName)
 
-    private const val MAX_PENDING_CONNECTIONS = 8
+    private const val MAX_PENDING_CONNECTIONS = 16
     private val pendingConnections = LinkedBlockingQueue<IOHandler>(MAX_PENDING_CONNECTIONS)
     private val connectContinuations = LinkedBlockingQueue<Continuation<Unit>>()
     private val connectExecutor = MyThreadPoolExecutor(MAX_PENDING_CONNECTIONS)
 
-    private const val CHANNEL_PER_SELECTOR = 50
-    private val channelSelectorMap = HashMap<IOHandler, SelectorThread>()
+    private const val HANDLER_PER_SELECTOR = 50
+    private val channelSelectorMap = HashMap<IOHandler, NIOSelector>()
 
     /**
-     * Stop all selector threads
+     * Stop all selector loops
      */
-    fun stopAllThread() {
+    fun stopAllSelectors() {
         synchronized(channelSelectorMap) {
-            channelSelectorMap.values.forEach { it.stopThread() }
+            channelSelectorMap.values.forEach { it.stop() }
         }
     }
 
     /**
-     * close and remove channel from channel-selector map
+     * close and remove channel if [ioHandler] from channel-selector map
      *
-     * @param ioHandler channel to close
+     * @param ioHandler handler has channel to close
      */
     fun closeChannel(ioHandler: IOHandler) {
-        getSelectorThread(ioHandler).closeChannel(ioHandler)
+        getSelector(ioHandler).closeChannel(ioHandler)
         // remove from map
         synchronized(channelSelectorMap) {
             channelSelectorMap.remove(ioHandler)
@@ -44,7 +44,7 @@ object NIOManager {
     /**
      * request a connection, wait until connection queue is not full
      *
-     * @param ioHandler channel perform connection
+     * @param ioHandler handler has channel perform connection
      * @param onConnect callback invoked when start connection
      */
     fun pendingConnect(ioHandler: IOHandler, onConnect: suspend () -> Unit) {
@@ -52,66 +52,68 @@ object NIOManager {
             waitForPending(ioHandler)
 
             withContext(Dispatchers.IO) {
+                // perform connection
                 onConnect()
+                // after request connection, register it for the selector to handle
                 register(ioHandler, SelectionKey.OP_CONNECT)
             }
         }
     }
 
     /**
-     * register a channel to a selector thread
+     * register a handler to a selector
      */
     fun register(ioHandler: IOHandler, ops: Int) {
-        getSelectorThread(ioHandler).register(ioHandler, ops)
+        getSelector(ioHandler).register(ioHandler, ops)
     }
 
 
     /**
-     * get selector thread has minimum registered channels
+     * get selector has minimum registered handlers
      *
-     * @param ioHandler channel need to register
+     * @param ioHandler handler needs to be registered
      */
-    private fun getSelectorThread(ioHandler: IOHandler) : SelectorThread {
+    private fun getSelector(ioHandler: IOHandler) : NIOSelector {
         synchronized(channelSelectorMap) {
-            var selectorThread = channelSelectorMap[ioHandler]
+            var selector = channelSelectorMap[ioHandler]
 
-            if (selectorThread != null) {
-                if (selectorThread.channelCount > CHANNEL_PER_SELECTOR) {
-                    // move this channel to other selector thread
+            if (selector != null) {
+                if (selector.handlerCount > HANDLER_PER_SELECTOR) {
+                    // remove to move this handler to other selector
                     channelSelectorMap.remove(ioHandler)
                 } else {
-                    return selectorThread
+                    return selector
                 }
             }
 
-            selectorThread = channelSelectorMap.values
+            selector = channelSelectorMap.values
                 .minByOrNull {
-                    it.channelCount
+                    it.handlerCount
                 }
-                ?: SelectorThread() // create new one if list is empty
+                ?: NIOSelector() // create new one if list is empty
 
-            // if this selector thread reach the limit, create new one
-            if (selectorThread.channelCount > CHANNEL_PER_SELECTOR) {
-                selectorThread = SelectorThread()
+            // if this selector reach the limit, create new one
+            if (selector.handlerCount > HANDLER_PER_SELECTOR) {
+                selector = NIOSelector()
             }
 
-            channelSelectorMap[ioHandler] = selectorThread
-            logger.d("getSelectorThread channel count: ${selectorThread.channelCount}")
-            return selectorThread
+            channelSelectorMap[ioHandler] = selector
+            logger.d("getSelector handler count: ${selector.handlerCount}")
+            return selector
         }
     }
 
     /**
-     * wait until connection queue is not full
+     * wait until connection queue is not full, to limit connection request at the same time
      *
-     * @param ioHandler the channel add to the queue
+     * @param ioHandler handler has channel add to the queue
      */
     private suspend fun waitForPending(ioHandler: IOHandler) {
-        // try to add this channel to queue
+        // try to add this handler to the queue
         while (!pendingConnections.offer(ioHandler)) {
             logger.d("waiting for pending: ${pendingConnections.size}")
 
-            // suspend here until resumed (maybe by selector thread)
+            // suspend here until resumed (maybe by selector)
             suspendCoroutine {
                 // add ref to list
                 // so we can retrieve and resume it
@@ -123,12 +125,11 @@ object NIOManager {
 
     /**
      * resume a pending connection (after a connection is established),
-     * make it continue to connect or queue again
-     * if the queue still full
+     * make it continue to connect or queue again if the queue still full
      */
     fun resumeConnect() {
         connectContinuations.poll()?.apply {
-            // remove a channel from queue
+            // remove a handler from queue
             // so another connection can be queued
             // the queue should not be empty here
             pendingConnections.remove()

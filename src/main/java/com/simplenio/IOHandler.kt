@@ -10,17 +10,17 @@ interface IOHandler {
     /**
      * handle read operation
      */
-    fun onRead()
+    suspend fun onRead()
 
     /**
      * handle write operation
      */
-    fun onWrite()
+    suspend fun onWrite()
 
     /**
      * callback invoked when channel is connected
      */
-    fun onConnected(): Boolean
+    suspend fun onConnected(): Boolean
 
     /**
      * connected channel

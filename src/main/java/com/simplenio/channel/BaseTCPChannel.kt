@@ -77,7 +77,7 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
         }
     }
 
-    override fun onRead() {
+    override suspend fun onRead() {
         if (socketChannel == null) {
             logger.e("trying to read null channel $socketChannel")
             return
@@ -98,7 +98,7 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
         }
     }
 
-    override fun onWrite() {
+    override suspend fun onWrite() {
         logger.d("onWrite send buffer, len:" + writeBuffer.capacity())
         doSend()
     }
@@ -122,7 +122,7 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
         close()
     }
 
-    override fun onConnected(): Boolean {
+    override suspend fun onConnected(): Boolean {
         return try {
             if (!socketChannel!!.isConnectionPending) {
                 logger.e("TCP is not in connection pending state.")
