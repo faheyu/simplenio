@@ -221,6 +221,8 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
      * Remove all completed or cancelled tasks
      */
     private fun clearExpiredTasks() {
+        var cleared = 0
+
         synchronized(futureTasks) {
             futureTasks.iterator().let {
                 while (it.hasNext()) {
@@ -231,6 +233,7 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
                             val future = listIterator.next()
                             if (future.isDone || future.isCancelled) {
                                 listIterator.remove()
+                                cleared += 1
                             }
                         }
                     }
@@ -242,6 +245,9 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
                 }
             }
         }
+
+        if (cleared > 0)
+            println("${logger.tagName} cleared $cleared expired tasks")
     }
 
     fun launchCoroutine(job: Job = Job(), block: suspend CoroutineScope.() -> Unit) : Job {
