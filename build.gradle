@@ -15,4 +15,6 @@ kotlin {
 dependencies {
     //noinspection GradleDependency
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0'
+    //noinspection GradleDependency
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.0'
 }
