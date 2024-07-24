@@ -22,12 +22,12 @@ class NIOSelector {
         /**
          * set this value to change thread pool's corePoolSize
          */
-        var THREAD_POOL_SIZE = 64
+        var THREAD_POOL_SIZE = 0
             set(value) {
                 threadPool.corePoolSize = value
                 field = value
             }
-        private val threadPool = MyThreadPoolExecutor(THREAD_POOL_SIZE)
+        private val threadPool = MyThreadPoolExecutor()
 
         /**
          * for debug purpose
@@ -42,7 +42,7 @@ class NIOSelector {
          *
          * this prevent select loop too fast, leading to GC blocking and consume cpu load
          */
-        const val MIN_SELECT_LOOP_TIME = 500L
+        const val MIN_SELECT_LOOP_TIME = 100L
     }
 
     private class Registration(val ops: Int, val ioHandler: IOHandler)
