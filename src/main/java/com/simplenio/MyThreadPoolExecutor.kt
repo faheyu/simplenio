@@ -122,6 +122,15 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
         )
     }
 
+    override fun setCorePoolSize(corePoolSize: Int) {
+        super.setCorePoolSize(corePoolSize).also {
+            /**
+             * update maximum pool size to fix [IllegalArgumentException] when [maximumPoolSize] < [corePoolSize]
+             */
+            maximumPoolSize = if (corePoolSize > 0) corePoolSize * 2 else Int.MAX_VALUE
+        }
+    }
+
     override fun <V : Any?> decorateTask(
         runnable: Runnable,
         task: RunnableScheduledFuture<V>
