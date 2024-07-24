@@ -12,34 +12,26 @@ import java.util.concurrent.Future
 import java.util.concurrent.RunnableScheduledFuture
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.system.measureTimeMillis
 
-class MyThreadPoolExecutor (corePoolSize: Int = 0): ScheduledThreadPoolExecutor(corePoolSize) {
+class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): ScheduledThreadPoolExecutor(corePoolSize) {
 
     private inner class MyFutureTask <V>(
         private val future: RunnableScheduledFuture<V>
     ) : RunnableScheduledFuture<V> {
         override fun run() {
             if (DEBUG) {
-                synchronized(taskExecutionTimes) {
-                    val startTime = taskExecutionTimes[future]
-                    if (startTime != null) {
-                        throw RuntimeException(
-                            "already init start time $startTime, now = ${System.currentTimeMillis()}"
-                        )
-                    }
-                    taskExecutionTimes[future] = System.currentTimeMillis()
-
+                val executeTime = measureTimeMillis {
                     future.run()
+                }
 
-                    val executeTime = System.currentTimeMillis() - taskExecutionTimes[future]!!
-                    taskExecutionTimes.remove(future)
-
-                    if (executeTime > MAX_EXECUTION_TIME) {
-                        throw RuntimeException(
-                            "execution time too long: $executeTime > $MAX_EXECUTION_TIME"
-                        )
-                    }
+                if (executeTime > MAX_EXECUTION_TIME) {
+                    throw RuntimeException(
+                        "execution time too long: $executeTime > $MAX_EXECUTION_TIME"
+                    )
                 }
             } else {
                 future.run()
@@ -79,22 +71,55 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0): ScheduledThreadPoolExecutor(
         }
     }
 
+    private class MyThreadFactory (name: String): ThreadFactory {
+        private val threadNumber = AtomicInteger(1)
+        private val namePrefix: String = "$name-"
+
+        override fun newThread(r: Runnable): Thread {
+            val t = Thread(
+                null, r,
+                namePrefix + threadNumber.getAndIncrement(),
+                0
+            )
+            if (t.isDaemon) t.isDaemon = false
+            if (t.priority != Thread.NORM_PRIORITY) t.priority = Thread.NORM_PRIORITY
+            return t
+        }
+    }
+
     companion object {
-        @Suppress("unused")
         private val logger = DebugLogger(MyThreadPoolExecutor::class.java.simpleName)
         private const val DEBUG = false
         const val MAX_EXECUTION_TIME = 100L
     }
 
+    /**
+     * the dispatcher to launch coroutines
+     */
     private val coroutineDispatcher = asCoroutineDispatcher()
+
+    /**
+     * save future tasks to handle later
+     */
     private val futureTasks = HashMap<Runnable, ArrayList<Future<*>>>()
-    private val taskExecutionTimes = HashMap<Runnable, Long>()
 
     init {
         maximumPoolSize = if (corePoolSize > 0) corePoolSize * 2 else Int.MAX_VALUE
         setKeepAliveTime(30, TimeUnit.SECONDS)
         allowCoreThreadTimeOut(true)
         removeOnCancelPolicy = true
+        threadFactory = MyThreadFactory(name)
+
+        // periodically clear finished tasks
+        // this fix memory leaks
+        scheduleWithFixedDelay(
+            {
+                clearExpiredTasks()
+            },
+            0,
+            10_000L,
+            TimeUnit.MILLISECONDS
+        )
     }
 
     override fun <V : Any?> decorateTask(
@@ -121,8 +146,8 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0): ScheduledThreadPoolExecutor(
         ) {
             try {
                 (r as Future<*>).get()
-            } catch (_: CancellationException) {
-
+            } catch (ce: CancellationException) {
+                logger.w("task $r is cancelled\n${ce.stackTraceToString()}")
             } catch (ee: ExecutionException) {
                 ee.cause?.let { throw it }
             } catch (ie: InterruptedException) {
@@ -163,12 +188,12 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0): ScheduledThreadPoolExecutor(
 
     private fun addFutureTask(command: Runnable, task: ScheduledFuture<*>) {
         synchronized(futureTasks) {
+            // add the task to the list if the key command exists in hash map
             if (futureTasks[command]?.add(task) == null) {
+                // if the list do not exists for this key, create new one and add the task to the list
                 futureTasks[command] = ArrayList<Future<*>>().apply {
                     add(task)
                 }
-            } else {
-                clearExpiredTasks()
             }
         }
     }
@@ -180,11 +205,12 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0): ScheduledThreadPoolExecutor(
                     futureTasks[task]?.forEach { it.cancel(true) }
                 }
             }
-
-            clearExpiredTasks()
         }
     }
 
+    /**
+     * Remove all completed or cancelled tasks
+     */
     private fun clearExpiredTasks() {
         synchronized(futureTasks) {
             futureTasks.iterator().let {
