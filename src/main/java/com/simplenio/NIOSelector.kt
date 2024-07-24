@@ -27,7 +27,7 @@ class NIOSelector {
                 threadPool.corePoolSize = value
                 field = value
             }
-        private val threadPool = MyThreadPoolExecutor()
+        private val threadPool = MyThreadPoolExecutor(name = NIOSelector::class.java.simpleName)
 
         /**
          * for debug purpose
