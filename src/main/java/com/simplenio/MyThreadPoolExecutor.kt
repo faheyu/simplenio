@@ -8,7 +8,6 @@ import java.util.concurrent.Callable
 import java.util.concurrent.CancellationException
 import java.util.concurrent.Delayed
 import java.util.concurrent.ExecutionException
-import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.RunnableScheduledFuture
 import java.util.concurrent.ScheduledFuture
@@ -81,23 +80,22 @@ class MyThreadPoolExecutor (corePoolSize: Int): ScheduledThreadPoolExecutor(core
     }
 
     companion object {
-        private val logger = DebugLogger("MyThreadPoolExecutor")
+        @Suppress("unused")
+        private val logger = DebugLogger(MyThreadPoolExecutor::class.java.simpleName)
         private const val DEBUG = false
         const val MAX_EXECUTION_TIME = 100L
-        private val coroutineDispatcher = Executors.newScheduledThreadPool(32)
-            .asCoroutineDispatcher()
     }
+
+    private val coroutineDispatcher = asCoroutineDispatcher()
+    private val futureTasks = HashMap<Runnable, ArrayList<Future<*>>>()
+    private val taskExecutionTimes = HashMap<Runnable, Long>()
 
     init {
         maximumPoolSize = if (corePoolSize > 0) corePoolSize * 2 else Int.MAX_VALUE
-        setKeepAliveTime(5, TimeUnit.SECONDS)
+        setKeepAliveTime(30, TimeUnit.SECONDS)
         allowCoreThreadTimeOut(true)
         removeOnCancelPolicy = true
     }
-
-
-    private val futureTasks = HashMap<Runnable, ArrayList<Future<*>>>()
-    private val taskExecutionTimes = HashMap<Runnable, Long>()
 
     override fun <V : Any?> decorateTask(
         runnable: Runnable,
