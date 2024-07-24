@@ -14,7 +14,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
-class MyThreadPoolExecutor (corePoolSize: Int): ScheduledThreadPoolExecutor(corePoolSize) {
+class MyThreadPoolExecutor (corePoolSize: Int = 0): ScheduledThreadPoolExecutor(corePoolSize) {
 
     private inner class MyFutureTask <V>(
         private val future: RunnableScheduledFuture<V>
