@@ -101,7 +101,7 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
          *
          * make clear time is not too long, as it blocks adding new task when clearing
          */
-        const val CLEAR_TASK_NUM = 500
+        const val CLEAR_TASK_NUM = 5000
     }
 
     /**
@@ -263,7 +263,7 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
         }
 
         if (cleared > 0)
-            println("${logger.tagName} cleared $cleared expired tasks took $clearTime ms")
+            println("${logger.tagName} cleared $cleared expired tasks took $clearTime ms; remain ${futureTasks.size} tasks")
     }
 
     fun launchCoroutine(job: Job = Job(), block: suspend CoroutineScope.() -> Unit) : Job {
