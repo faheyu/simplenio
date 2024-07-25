@@ -90,7 +90,18 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
     companion object {
         private val logger = DebugLogger(MyThreadPoolExecutor::class.java.simpleName)
         private const val DEBUG = false
+
+        /**
+         * ensure task execution time is not greater than this value in debug mode
+         */
         const val MAX_EXECUTION_TIME = 100L
+
+        /**
+         * max number of tasks can be cleared when call [clearExpiredTasks]
+         *
+         * make clear time is not too long, as it blocks adding new task when clearing
+         */
+        const val CLEAR_TASK_NUM = 500
     }
 
     /**
@@ -223,31 +234,36 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
     private fun clearExpiredTasks() {
         var cleared = 0
 
-        synchronized(futureTasks) {
-            futureTasks.iterator().let {
-                while (it.hasNext()) {
-                    val (_, list) = it.next()
+        val clearTime = measureTimeMillis {
+            synchronized(futureTasks) {
+                futureTasks.iterator().let {
+                    while (it.hasNext()) {
+                        val (_, list) = it.next()
 
-                    list.iterator().let { listIterator ->
-                        while (listIterator.hasNext()) {
-                            val future = listIterator.next()
-                            if (future.isDone || future.isCancelled) {
-                                listIterator.remove()
-                                cleared += 1
+                        list.iterator().let { listIterator ->
+                            while (listIterator.hasNext()) {
+                                val future = listIterator.next()
+                                if (future.isDone || future.isCancelled) {
+                                    listIterator.remove()
+                                    cleared += 1
+                                    if (cleared > CLEAR_TASK_NUM) {
+                                        return@synchronized
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    // remove key that has no future task
-                    if (list.isEmpty()) {
-                        it.remove()
+                        // remove key that has no future task
+                        if (list.isEmpty()) {
+                            it.remove()
+                        }
                     }
                 }
             }
         }
 
         if (cleared > 0)
-            println("${logger.tagName} cleared $cleared expired tasks")
+            println("${logger.tagName} cleared $cleared expired tasks took $clearTime ms")
     }
 
     fun launchCoroutine(job: Job = Job(), block: suspend CoroutineScope.() -> Unit) : Job {
