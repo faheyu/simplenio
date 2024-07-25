@@ -78,12 +78,9 @@ object NIOManager {
             var selector = channelSelectorMap[ioHandler]
 
             if (selector != null) {
-                if (selector.handlerCount > HANDLER_PER_SELECTOR) {
-                    // remove to move this handler to other selector
-                    channelSelectorMap.remove(ioHandler)
-                } else {
-                    return selector
-                }
+                // we don't need to check limit
+                // as it is never greater than limit
+                return selector
             }
 
             selector = channelSelectorMap.values
@@ -93,7 +90,7 @@ object NIOManager {
                 ?: NIOSelector() // create new one if list is empty
 
             // if this selector reach the limit, create new one
-            if (selector.handlerCount > HANDLER_PER_SELECTOR) {
+            if (selector.handlerCount >= HANDLER_PER_SELECTOR) {
                 selector = NIOSelector()
             }
 
