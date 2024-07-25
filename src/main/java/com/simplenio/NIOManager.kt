@@ -1,7 +1,5 @@
 package com.simplenio
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.nio.channels.SelectionKey
 import java.util.concurrent.LinkedBlockingQueue
 import kotlin.coroutines.Continuation
@@ -11,10 +9,10 @@ import kotlin.coroutines.suspendCoroutine
 object NIOManager {
     private val logger = DebugLogger(NIOManager::class.java.simpleName)
 
-    private const val MAX_PENDING_CONNECTIONS = 16
+    private const val MAX_PENDING_CONNECTIONS = 8
     private val pendingConnections = LinkedBlockingQueue<IOHandler>(MAX_PENDING_CONNECTIONS)
     private val connectContinuations = LinkedBlockingQueue<Continuation<Unit>>()
-    private val connectExecutor = MyThreadPoolExecutor(MAX_PENDING_CONNECTIONS)
+    private val connectExecutor = MyThreadPoolExecutor()
 
     private const val HANDLER_PER_SELECTOR = 50
     private val channelSelectorMap = HashMap<IOHandler, NIOSelector>()
@@ -51,12 +49,10 @@ object NIOManager {
         connectExecutor.launchCoroutine {
             waitForPending(ioHandler)
 
-            withContext(Dispatchers.IO) {
-                // perform connection
-                onConnect()
-                // after request connection, register it for the selector to handle
-                register(ioHandler, SelectionKey.OP_CONNECT)
-            }
+            // perform connection
+            onConnect()
+            // after request connection, register it for the selector to handle
+            register(ioHandler, SelectionKey.OP_CONNECT)
         }
     }
 
