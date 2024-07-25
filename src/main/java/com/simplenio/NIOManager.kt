@@ -102,9 +102,15 @@ object NIOManager {
      * @param ioHandler handler has channel add to the queue
      */
     private suspend fun waitForPending(ioHandler: IOHandler) {
+        // check if this handler already queued
+        if (pendingConnections.indexOf(ioHandler) != -1) {
+            logger.log("connection already queued, remove it before queue again")
+            pendingConnections.remove(ioHandler)
+        }
+
         // try to add this handler to the queue
         while (!pendingConnections.offer(ioHandler)) {
-            logger.d("waiting for pending: ${pendingConnections.size}")
+            logger.log("waiting for pending connection: ${pendingConnections.size}")
 
             // suspend here until resumed (maybe by selector)
             suspendCoroutine {
@@ -121,15 +127,10 @@ object NIOManager {
      * make it continue to connect or queue again if the queue still full
      */
     fun resumeConnect() {
-        connectContinuations.poll()?.apply {
-            // remove a handler from queue
-            // so another connection can be queued
-            // the queue should not be empty here
-            pendingConnections.remove()
+        // release the queue first
+        pendingConnections.poll()
 
-            // resume after remove from queue
-            // to prevent queuing again
-            resume(Unit)
-        }
+        // resume if any pending connection
+        connectContinuations.poll()?.resume(Unit)
     }
 }
