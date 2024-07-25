@@ -16,6 +16,13 @@ class DebugLogger(val tagName: String) {
         turnOn = true
     }
 
+    /**
+     * log without turn on logger, use to log important log
+     */
+    fun log(msg: String) {
+        println("$tagName $msg")
+    }
+
     fun e(msg: String) {
         if (!turnOn) return
         println("[$ERROR][$tagName] $msg")
