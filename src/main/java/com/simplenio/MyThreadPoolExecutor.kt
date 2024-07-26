@@ -19,7 +19,7 @@ import kotlin.system.measureTimeMillis
 
 class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): ScheduledThreadPoolExecutor(corePoolSize) {
 
-    private inner class MyFutureTask <V>(
+    private class MyFutureTask <V>(
         private val future: RunnableScheduledFuture<V>
     ) : RunnableScheduledFuture<V> {
         override fun run() {
