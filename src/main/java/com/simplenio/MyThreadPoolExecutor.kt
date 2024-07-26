@@ -223,6 +223,7 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
             if (task != null) {
                 synchronized(futureTasks) {
                     futureTasks[task]?.forEach { it.cancel(true) }
+                    futureTasks.remove(task)
                 }
             }
         }
