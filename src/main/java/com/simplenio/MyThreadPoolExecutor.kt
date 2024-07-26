@@ -2,6 +2,7 @@ package com.simplenio
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import java.util.concurrent.Callable
@@ -179,33 +180,50 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
     }
 
     /**
-     * schedule with delay in milliseconds
+     * schedule task with delay in milliseconds and save it to the [futureTasks] to handle later
+     *
+     * @param command task to run in future
+     * @param delay delay in milliseconds
+     * @return the scheduled future task
      */
-    fun schedule(command: Runnable, delay: Long): ScheduledFuture<*> {
-        return schedule(command, delay, TimeUnit.MILLISECONDS)
+    fun scheduleAndSave(command: Runnable, delay: Long = 0): ScheduledFuture<*> {
+        return super.schedule(command, delay, TimeUnit.MILLISECONDS).also {
+            addFutureTask(command, it)
+        }
     }
 
-    override fun schedule(command: Runnable, delay: Long, unit: TimeUnit): ScheduledFuture<*> {
-        return super.schedule(command, delay, unit).also {
-            if (delay > 0) {
-                addFutureTask(command, it)
+    /**
+     * schedule task periodically with [initialDelay] and [delay] in milliseconds and save it to the [futureTasks] to handle later
+     *
+     * @param command task to run in future
+     * @param initialDelay
+     * @param delay delay in milliseconds
+     * @return the scheduled future task
+     */
+    fun schedulePeriodAndSave(command: Runnable, initialDelay: Long, delay: Long) : ScheduledFuture<*> {
+        return super.scheduleWithFixedDelay(command, initialDelay, delay, TimeUnit.MILLISECONDS).also {
+            addFutureTask(command, it)
+        }
+    }
+
+    /**
+     * remove the task saved before
+     *
+     * @param task task to remove
+     * @return true if successful
+     */
+    fun removeSavedTask(task: Runnable) : Boolean {
+        return super.remove(task).also {
+            synchronized(futureTasks) {
+                futureTasks[task]?.forEach { it.cancel(true) }
+                futureTasks.remove(task)
             }
         }
     }
 
-    override fun scheduleWithFixedDelay(
-        command: Runnable,
-        initialDelay: Long,
-        delay: Long,
-        unit: TimeUnit
-    ): ScheduledFuture<*> {
-        return super.scheduleWithFixedDelay(command, initialDelay, delay, unit).also {
-            if (delay > 0) {
-                addFutureTask(command, it)
-            }
-        }
-    }
-
+    /**
+     * save future task to hash map to handle later
+     */
     private fun addFutureTask(command: Runnable, task: ScheduledFuture<*>) {
         synchronized(futureTasks) {
             // add the task to the list if the key command exists in hash map
@@ -213,17 +231,6 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
                 // if the list do not exists for this key, create new one and add the task to the list
                 futureTasks[command] = ArrayList<Future<*>>().apply {
                     add(task)
-                }
-            }
-        }
-    }
-
-    override fun remove(task: Runnable?): Boolean {
-        return super.remove(task).also {
-            if (task != null) {
-                synchronized(futureTasks) {
-                    futureTasks[task]?.forEach { it.cancel(true) }
-                    futureTasks.remove(task)
                 }
             }
         }
@@ -264,9 +271,12 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
         }
 
         if (cleared > 0)
-            println("${logger.tagName} cleared $cleared expired tasks took $clearTime ms; remain ${futureTasks.size} tasks")
+            logger.log("cleared $cleared expired tasks took $clearTime ms; remain ${futureTasks.size} tasks")
     }
 
+    /**
+     * launch a coroutine with this thread pool as coroutine dispatcher
+     */
     fun launchCoroutine(job: Job = Job(), block: suspend CoroutineScope.() -> Unit) : Job {
         return CoroutineScope(job).launch(coroutineDispatcher, block=block)
     }
