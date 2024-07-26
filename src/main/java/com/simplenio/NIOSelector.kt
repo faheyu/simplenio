@@ -151,17 +151,17 @@ class NIOSelector {
                                 val selectionKey = it.next()
                                 it.remove()
 
-                                if (selectionKey.isValid) {
-                                    launch {
-                                        val isConnectOp =
-                                            selectionKey.interestOps() and SelectionKey.OP_CONNECT == SelectionKey.OP_CONNECT
+                                launch {
+                                    val isConnectOp =
+                                        selectionKey.interestOps() and SelectionKey.OP_CONNECT == SelectionKey.OP_CONNECT
 
+                                    if (selectionKey.isValid) {
                                         handleKey(selectionKey)
+                                    }
 
-                                        if (isConnectOp) {
-                                            // after handled a connect operation, release the connection queue
-                                            NIOManager.resumeConnect()
-                                        }
+                                    if (isConnectOp) {
+                                        // after handled a connect operation, release the connection queue
+                                        NIOManager.resumeConnect()
                                     }
                                 }
                             }
