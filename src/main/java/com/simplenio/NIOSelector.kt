@@ -27,7 +27,7 @@ class NIOSelector {
                 threadPool.corePoolSize = value
                 field = value
             }
-        private val threadPool = MyThreadPoolExecutor(name = NIOSelector::class.java.simpleName)
+        private val threadPool = MyThreadPoolExecutor(THREAD_POOL_SIZE, name = NIOSelector::class.java.simpleName)
 
         /**
          * for debug purpose
@@ -132,7 +132,7 @@ class NIOSelector {
                         pendingRegistrations.clear()
                     }
 
-                    withContext(Dispatchers.IO) {
+                    withContext(threadPool.ioDispatcher) {
                         // wait for any selector operations is completed
                         // see https://stackoverflow.com/questions/1057224/java-thread-blocks-while-registering-channel-with-selector-while-select-is-cal/2179612#2179612
                         // we can lock and unlock here
