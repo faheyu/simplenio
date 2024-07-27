@@ -46,12 +46,12 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
     private var socketChannel : SocketChannel? = null
 
     private fun waitConnectTimeout() {
-        threadPool.remove(mTimeoutCheckTask)
-        threadPool.schedule(mTimeoutCheckTask, CONNECT_TIMEOUT)
+        threadPool.removeSavedTask(mTimeoutCheckTask)
+        threadPool.scheduleAndSave(mTimeoutCheckTask, CONNECT_TIMEOUT)
     }
 
     private fun removeWaitConnectTimeout() {
-        threadPool.remove(mTimeoutCheckTask)
+        threadPool.removeSavedTask(mTimeoutCheckTask)
     }
 
     private fun doSend(): Int {
