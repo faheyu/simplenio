@@ -183,6 +183,10 @@ abstract class ObjectPool<T: Any> {
             pool.iterator().let {
                 while (it.hasNext()) {
                     val reusableObject = it.next()
+                    // ignore in use object
+                    if (reusableObject.inUse)
+                        continue
+
                     if ((filter != null && filter(reusableObject.obj)) || pool.size > MAX_OBJECTS) {
                         // set auto recycle to false, so we can completely remove it from the pool
                         reusableObject.autoRecycle = false
