@@ -1,6 +1,9 @@
 package com.simplenio
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -18,6 +21,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.system.measureTimeMillis
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): ScheduledThreadPoolExecutor(corePoolSize) {
 
     private class MyFutureTask <V>(
@@ -102,13 +106,19 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
          *
          * make clear time is not too long, as it blocks adding new task when clearing
          */
-        const val CLEAR_TASK_NUM = 5000
+        const val CLEAR_TASK_NUM = 50_000
     }
 
     /**
      * the dispatcher to launch coroutines
      */
     private val coroutineDispatcher = asCoroutineDispatcher()
+
+    /**
+     * [Dispatchers.IO] with customized thread pool size
+     */
+    var ioDispatcher : CoroutineDispatcher
+        private set
 
     /**
      * save future tasks to handle later
@@ -121,6 +131,13 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
         allowCoreThreadTimeOut(true)
         removeOnCancelPolicy = true
         threadFactory = MyThreadFactory(name)
+
+        // init dispatcher here as corePoolSize can be zero
+        ioDispatcher =
+            if (corePoolSize > 0)
+                Dispatchers.IO.limitedParallelism(corePoolSize)
+            else
+                Dispatchers.IO
 
         // periodically clear finished tasks
         // this fix memory leaks
@@ -140,6 +157,9 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
              * update maximum pool size to fix [IllegalArgumentException] when [maximumPoolSize] < [corePoolSize]
              */
             maximumPoolSize = if (corePoolSize > 0) corePoolSize * 2 else Int.MAX_VALUE
+            if (corePoolSize > 0 && this.corePoolSize != corePoolSize) {
+                ioDispatcher = Dispatchers.IO.limitedParallelism(corePoolSize)
+            }
         }
     }
 
