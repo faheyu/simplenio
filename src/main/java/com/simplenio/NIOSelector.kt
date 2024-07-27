@@ -102,20 +102,18 @@ class NIOSelector {
 
     fun start() {
         if (started.getAndSet(true)) return
-
         running = true
 
-        // open selector first
-        // we can't open it in coroutine
-        // as the lock can't be unlocked by another thread
-        selectorLock.lock()
-        try {
-            mSelector = Selector.open()
-        } finally {
-            selectorLock.unlock()
-        }
-
         threadPool.launchCoroutine {
+            // open selector in coroutine to prevent registering blocking
+            // we can open it here as there's no suspend point
+            selectorLock.lock()
+            try {
+                mSelector = Selector.open()
+            } finally {
+                selectorLock.unlock()
+            }
+
             while (running) {
                 try {
                     // register all pending
