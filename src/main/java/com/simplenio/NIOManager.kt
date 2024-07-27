@@ -1,18 +1,18 @@
 package com.simplenio
 
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.nio.channels.SelectionKey
 import java.util.concurrent.LinkedBlockingQueue
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 object NIOManager {
     private val logger = DebugLogger(NIOManager::class.java.simpleName)
 
     private const val MAX_PENDING_CONNECTIONS = 8
     private val pendingConnections = LinkedBlockingQueue<IOHandler>(MAX_PENDING_CONNECTIONS)
-    private val connectContinuations = LinkedBlockingQueue<Continuation<Unit>>()
-    private val connectExecutor = MyThreadPoolExecutor()
+    private val connectContinuations = HashMap<IOHandler, Continuation<Unit>>()
+    private val connectExecutor = MyThreadPoolExecutor(MAX_PENDING_CONNECTIONS)
 
     private const val HANDLER_PER_SELECTOR = 50
     private val channelSelectorMap = HashMap<IOHandler, NIOSelector>()
@@ -109,15 +109,17 @@ object NIOManager {
         }
 
         // try to add this handler to the queue
-        while (!pendingConnections.offer(ioHandler)) {
+        if (!pendingConnections.offer(ioHandler)) {
             logger.log("waiting for pending connection: ${pendingConnections.size}")
 
             // suspend here until resumed (maybe by selector)
-            suspendCoroutine {
+            suspendCancellableCoroutine {
                 // add ref to list
                 // so we can retrieve and resume it
                 // after another connection is established
-                connectContinuations.add(it)
+                synchronized(connectContinuations) {
+                    connectContinuations[ioHandler] = it
+                }
             }
         }
     }
@@ -131,6 +133,10 @@ object NIOManager {
         pendingConnections.poll()
 
         // resume if any pending connection
-        connectContinuations.poll()?.resume(Unit)
+        synchronized(connectContinuations) {
+            connectContinuations.keys.firstOrNull()?.let {
+                connectContinuations.remove(it)?.resume(Unit)
+            }
+        }
     }
 }
