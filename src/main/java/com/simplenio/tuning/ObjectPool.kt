@@ -24,6 +24,11 @@ abstract class ObjectPool<T: Any> {
         var inUse = false
 
         /**
+         * determine if the object is removed from the pool and added to the pool again
+         */
+        var isRecycled = false
+
+        /**
          * Determine if it need to recycle object when finalize() called
          */
         var autoRecycle = true
@@ -41,6 +46,11 @@ abstract class ObjectPool<T: Any> {
                  */
                 recycle(obj)
             } catch (_: IllegalArgumentException) {
+                /**
+                 * do this to prevent somewhere get same object, see [ObjectPool.get]
+                 */
+                isRecycled = true
+
                 /**
                  * if we got error here, the [ReusableObject] should be removed from the pool
                  * so we can add the object to the pool again
@@ -66,6 +76,22 @@ abstract class ObjectPool<T: Any> {
             pool.iterator().let { poolIterator ->
                 while (poolIterator.hasNext()) {
                     reusableObject = poolIterator.next()
+
+                    /**
+                     * we can get the [ReusableObject] newly recycled here
+                     * but we shouldn't get it
+                     * as its finalizer waiting for adding itself to the pool (due to lock)
+                     * it will reset the [ReusableObject.inUse] property to false when added
+                     * and somewhere can get the same [ReusableObject]
+                     *
+                     * to fix this, set [ReusableObject.isRecycled] to false and ignore it
+                     */
+                    if (reusableObject.isRecycled) {
+                        reusableObject.isRecycled = false
+                        continue
+                    }
+
+                    // ignore object in use
                     if (reusableObject.inUse)
                         continue
 
