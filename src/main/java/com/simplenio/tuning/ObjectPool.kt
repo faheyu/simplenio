@@ -17,7 +17,7 @@ abstract class ObjectPool<T: Any> {
     /**
      * Class holds the reference to object need to reuse
      */
-    private inner class ReusableObject(val obj: T) {
+    inner class ReusableObject(internal val obj: T) {
         /**
          * Determine if the object in use somewhere
          */
@@ -33,13 +33,20 @@ abstract class ObjectPool<T: Any> {
          */
         var autoRecycle = true
 
+        /**
+         * get the actual object
+         */
+        fun get() : T {
+            return obj
+        }
+
         protected fun finalize() {
             // auto cleaning
             clean()
 
             if (!autoRecycle) return
 
-            logger.log("finalize ReusableObject, recycle or add object to pool again")
+            logger.d("finalize ReusableObject, recycle or add object to pool again")
             try {
                 /**
                  * try to recycle the object if it still exist in the pool
@@ -65,10 +72,10 @@ abstract class ObjectPool<T: Any> {
     /**
      * get the object is not used by anywhere and mark it as in use
      *
-     * @param predicate if define, only get the object matches the [predicate]
+     * @param predicate if define, only get the object matching the given [predicate]
      * @return the reusable object or null if not found
      */
-    protected fun get(predicate: ((T) -> Boolean)? = null) : T? {
+    protected fun get(predicate: ((T) -> Boolean)? = null) : ReusableObject? {
         synchronized(this) {
             var reusableObject : ReusableObject
 
@@ -77,36 +84,16 @@ abstract class ObjectPool<T: Any> {
                 while (poolIterator.hasNext()) {
                     reusableObject = poolIterator.next()
 
-                    /**
-                     * we can get the [ReusableObject] newly recycled here
-                     * but we shouldn't get it
-                     * as its finalizer waiting for adding itself to the pool (due to lock)
-                     * it will reset the [ReusableObject.inUse] property to false when added
-                     * and somewhere can get the same [ReusableObject]
-                     *
-                     * to fix this, set [ReusableObject.isRecycled] to false and ignore it
-                     */
-                    if (reusableObject.isRecycled) {
-                        reusableObject.isRecycled = false
-                        continue
-                    }
-
-                    // ignore object in use
-                    if (reusableObject.inUse)
-                        continue
-
-                    // if we got here, we found the reusable object
-                    if (predicate == null || predicate(reusableObject.obj)) {
+                    if (canReuse(reusableObject, predicate)) {
                         /**
                          * found the reusable object
                          * we remove the [ReusableObject] here, let GC delete it and call finalize()
                          * to automatically recycle the object
                          */
                         poolIterator.remove()
-                        return reusableObject.let {
+                        return reusableObject.also {
                             // mark as in use so it can not be used in anywhere
                             it.inUse = true
-                            it.obj
                         }
                     }
                 }
@@ -116,19 +103,78 @@ abstract class ObjectPool<T: Any> {
         }
     }
 
+    fun <R : Comparable<R>> getMinByOrNull(selector: (T) -> R) : ReusableObject? {
+        synchronized(this) {
+            // get not in use object, and get min by selector
+            val reusableObject = pool.filter { !it.inUse }.minByOrNull {
+                selector(it.obj)
+            } ?: return null
+
+            return reusableObject.also {
+                /**
+                 * remove for recycling, see [ObjectPool.get]
+                 */
+                pool.remove(reusableObject)
+                // mark as in use so it can not be used in anywhere
+                reusableObject.inUse = true
+            }
+        }
+    }
+
+    /**
+     * Determine if the object can be reused or not
+     *
+     * @param reusableObject the [ReusableObject] need to check
+     * @param predicate additional condition to check
+     * @return true if the [ReusableObject] can be reused now, false otherwise
+     */
+    private fun canReuse(reusableObject : ReusableObject, predicate: ((T) -> Boolean)? = null) : Boolean {
+        /**
+         * we can get the [ReusableObject] newly recycled here
+         * but we shouldn't get it
+         * as its finalizer waiting for adding itself to the pool (due to lock)
+         * it will reset the [ReusableObject.inUse] property to false when added
+         * and somewhere can get the same [ReusableObject]
+         *
+         * to fix this, set [ReusableObject.isRecycled] to false and ignore it
+         */
+        if (reusableObject.isRecycled) {
+            reusableObject.isRecycled = false
+            return false
+        }
+
+        // ignore object in use
+        if (reusableObject.inUse)
+            return false
+
+        // if we got here, we found the reusable object
+        if (predicate == null || predicate(reusableObject.obj)) {
+            return true
+        }
+
+        return false
+    }
+
     /**
      * add the object to the pool
      *
      * @param obj the reusable object
-     * @param setInUse mark the new object as in use or not
+     * @param inUse mark the new object as in use or not
      * @return the added object
      */
-    protected fun add(obj : T, setInUse: Boolean = false) : T {
+    protected fun add(obj : T, inUse: Boolean = false) : ReusableObject {
         synchronized(this) {
             val reusableObject = ReusableObject(obj)
-            reusableObject.inUse = setInUse
-            pool.addLast(reusableObject)
-            return obj
+            reusableObject.inUse = inUse
+
+            // only add this object to the pool if not in use
+            // so its finalizer can be invoked when garbage-collected
+            // and add again to the pool for reusing
+            if (!inUse) {
+                pool.addLast(reusableObject)
+            }
+
+            return reusableObject
         }
     }
 
@@ -170,15 +216,25 @@ abstract class ObjectPool<T: Any> {
     }
 
     /**
-     * removes [ReusableObject] from the pool matches [filter].
-     * If number of objects in the pool over [MAX_OBJECTS] limit,
-     * it will remove objects until the pool size not greater than [MAX_OBJECTS]
+     * removes [ReusableObject] from the pool.
+     * This function by default removes objects until the pool size is no larger than [MAX_OBJECTS].
+     * Sub-classes can override this function to change behavior.
      *
-     * this function is called by [ReusableObject] for cleaning automatically
-     *
-     * @param filter can be null, the condition to remove the [ReusableObject] from the pool.
+     * this function is called by [ReusableObject] finalizer for cleaning automatically.
      */
-    protected open fun clean(filter: ((T) -> Boolean)? = null) {
+    protected open fun clean() {
+        clean {
+            pool.size > MAX_OBJECTS
+        }
+    }
+
+
+    /**
+     * removes all [ReusableObject]s from the pool that match the [filter].
+     *
+     * @param filter the condition to remove the [ReusableObject] from the pool.
+     */
+    protected fun clean(filter: (T) -> Boolean) {
         synchronized(this) {
             pool.iterator().let {
                 while (it.hasNext()) {
@@ -187,7 +243,7 @@ abstract class ObjectPool<T: Any> {
                     if (reusableObject.inUse)
                         continue
 
-                    if ((filter != null && filter(reusableObject.obj)) || pool.size > MAX_OBJECTS) {
+                    if (filter(reusableObject.obj)) {
                         // set auto recycle to false, so we can completely remove it from the pool
                         reusableObject.autoRecycle = false
                         it.remove()
