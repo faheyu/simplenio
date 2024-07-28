@@ -12,6 +12,7 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
     private const val MIN_BUFFER_SIZE = 512
     private val allocated = AtomicInteger()
 
+    @JvmStatic
     fun getByteBuffer(capacity: Int, isDirect: Boolean = true) : ReusableObject {
         // get byte buffer has smallest capacity
         var reusableByteBuffer = getMinByOrNull {
@@ -52,6 +53,7 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
         return reusableByteBuffer
     }
 
+    @JvmStatic
     fun getByteBuffer(array: ByteArray, isDirect: Boolean = true) : ReusableObject {
         val reusableObj = getByteBuffer(array.size, isDirect)
         reusableObj.get().also {
