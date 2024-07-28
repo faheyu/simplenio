@@ -109,7 +109,8 @@ object NIOManager {
         }
 
         // try to add this handler to the queue
-        if (!pendingConnections.offer(ioHandler)) {
+        // use while loop to ensure number of connections no larger than limit
+        while (!pendingConnections.offer(ioHandler)) {
             logger.log("waiting for pending connection: ${pendingConnections.size}")
 
             // suspend here until resumed (maybe by selector)
