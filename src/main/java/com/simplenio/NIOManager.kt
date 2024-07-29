@@ -9,7 +9,7 @@ import kotlin.coroutines.resume
 object NIOManager {
     private val logger = DebugLogger(NIOManager::class.java.simpleName)
 
-    private const val MAX_PENDING_CONNECTIONS = 8
+    private const val MAX_PENDING_CONNECTIONS = 4
     private val pendingConnections = LinkedBlockingQueue<IOHandler>(MAX_PENDING_CONNECTIONS)
     private val connectContinuations = HashMap<IOHandler, Continuation<Unit>>()
     val threadPool = MyThreadPoolExecutor(MAX_PENDING_CONNECTIONS)
@@ -67,8 +67,8 @@ object NIOManager {
         }
 
         // try to add this handler to the queue
-        // use while loop to ensure number of connections no larger than limit
-        while (!pendingConnections.offer(ioHandler)) {
+        // if the queue is full, it will be suspended
+        if (!pendingConnections.offer(ioHandler)) {
             logger.log("waiting for pending connection: ${pendingConnections.size}")
 
             // suspend here until resumed (maybe by selector)
