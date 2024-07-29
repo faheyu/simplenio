@@ -1,13 +1,10 @@
 package com.simplenio.tuning
 
-import com.simplenio.DebugLogger
 import java.util.LinkedList
 
 abstract class ObjectPool<T: Any> {
 
     companion object {
-        private val logger = DebugLogger(ObjectPool::class.java.simpleName)
-
         /**
          * max number of reusable objects in the pool
          */
@@ -23,15 +20,7 @@ abstract class ObjectPool<T: Any> {
          */
         var inUse = false
 
-        /**
-         * determine if the object is removed from the pool and added to the pool again
-         */
-        var isRecycled = false
-
-        /**
-         * Determine if it need to recycle object when finalize() called
-         */
-        var autoRecycle = true
+        private var onRecycleListener : (() -> Unit)? = null
 
         /**
          * get the actual object
@@ -40,30 +29,18 @@ abstract class ObjectPool<T: Any> {
             return obj
         }
 
-        protected fun finalize() {
-            // auto cleaning
-            clean()
+        fun recycle() {
+            synchronized(this@ObjectPool) {
+                if (!inUse)
+                    return
 
-            if (!autoRecycle) return
-
-            logger.d("finalize ReusableObject, recycle or add object to pool again")
-            try {
-                /**
-                 * try to recycle the object if it still exist in the pool
-                 */
-                recycle(obj)
-            } catch (_: IllegalArgumentException) {
-                /**
-                 * do this to prevent somewhere get same object, see [ObjectPool.get]
-                 */
-                isRecycled = true
-
-                /**
-                 * if we got error here, the [ReusableObject] should be removed from the pool
-                 * so we can add the object to the pool again
-                 */
-                add(obj, false)
+                inUse = false
+                onRecycleListener?.invoke()
             }
+        }
+
+        fun onRecycle(listener: () -> Unit) {
+            onRecycleListener = listener
         }
     }
 
@@ -85,12 +62,6 @@ abstract class ObjectPool<T: Any> {
                     reusableObject = poolIterator.next()
 
                     if (canReuse(reusableObject, predicate)) {
-                        /**
-                         * found the reusable object
-                         * we remove the [ReusableObject] here, let GC delete it and call finalize()
-                         * to automatically recycle the object
-                         */
-                        poolIterator.remove()
                         return reusableObject.also {
                             // mark as in use so it can not be used in anywhere
                             it.inUse = true
@@ -103,6 +74,13 @@ abstract class ObjectPool<T: Any> {
         }
     }
 
+    /**
+     * get the first object is not used by anywhere yielding the smallest value of the given [selector] and mark it as in use.
+     * Returns null if not found.
+     *
+     * @param selector the function yielding from
+     * @return the reusable object or null if not found
+     */
     fun <R : Comparable<R>> getMinByOrNull(selector: (T) -> R) : ReusableObject? {
         synchronized(this) {
             // get not in use object, and get min by selector
@@ -111,10 +89,6 @@ abstract class ObjectPool<T: Any> {
             } ?: return null
 
             return reusableObject.also {
-                /**
-                 * remove for recycling, see [ObjectPool.get]
-                 */
-                pool.remove(reusableObject)
                 // mark as in use so it can not be used in anywhere
                 reusableObject.inUse = true
             }
@@ -129,20 +103,6 @@ abstract class ObjectPool<T: Any> {
      * @return true if the [ReusableObject] can be reused now, false otherwise
      */
     private fun canReuse(reusableObject : ReusableObject, predicate: ((T) -> Boolean)? = null) : Boolean {
-        /**
-         * we can get the [ReusableObject] newly recycled here
-         * but we shouldn't get it
-         * as its finalizer waiting for adding itself to the pool (due to lock)
-         * it will reset the [ReusableObject.inUse] property to false when added
-         * and somewhere can get the same [ReusableObject]
-         *
-         * to fix this, set [ReusableObject.isRecycled] to false and ignore it
-         */
-        if (reusableObject.isRecycled) {
-            reusableObject.isRecycled = false
-            return false
-        }
-
         // ignore object in use
         if (reusableObject.inUse)
             return false
@@ -163,55 +123,14 @@ abstract class ObjectPool<T: Any> {
      * @return the added object
      */
     protected fun add(obj : T, inUse: Boolean = false) : ReusableObject {
+        // clean first
+        clean()
+
         synchronized(this) {
             val reusableObject = ReusableObject(obj)
             reusableObject.inUse = inUse
-
-            // only add this object to the pool if not in use
-            // so its finalizer can be invoked when garbage-collected
-            // and add again to the pool for reusing
-            if (!inUse) {
-                pool.addLast(reusableObject)
-            }
-
+            pool.addLast(reusableObject)
             return reusableObject
-        }
-    }
-
-    /**
-     * make object created from this pool reusable
-     *
-     * @param predicate recycle first object matches the predicate
-     * @throws [IllegalArgumentException] when the object is not created from the pool
-     */
-    @Throws(java.lang.IllegalArgumentException::class)
-    protected fun recycle(predicate: (T) -> Boolean) {
-        synchronized(this) {
-            pool.forEach {
-                if (predicate(it.obj)) {
-                    // mark this object as not in use, so it can be reused in somewhere
-                    it.inUse = false
-                    return
-                }
-            }
-
-            // if we got here, no such object in the pool
-            throw IllegalArgumentException("the object is not created from the pool")
-        }
-    }
-
-    /**
-     * make object created from this pool reusable
-     *
-     * @param obj the object created from this pool
-     * @throws [IllegalArgumentException] when the object is not created from the pool
-     */
-    @Throws(java.lang.IllegalArgumentException::class)
-    protected fun recycle(obj: T) {
-        // we don't need to use lock here
-        // as the recycle() function below do this for us
-        recycle {
-            obj === it
         }
     }
 
@@ -220,7 +139,7 @@ abstract class ObjectPool<T: Any> {
      * This function by default removes objects until the pool size is no larger than [MAX_OBJECTS].
      * Sub-classes can override this function to change behavior.
      *
-     * this function is called by [ReusableObject] finalizer for cleaning automatically.
+     * this function is called when add new object to the pool
      */
     protected open fun clean() {
         clean {
@@ -244,8 +163,6 @@ abstract class ObjectPool<T: Any> {
                         continue
 
                     if (filter(reusableObject.obj)) {
-                        // set auto recycle to false, so we can completely remove it from the pool
-                        reusableObject.autoRecycle = false
                         it.remove()
                     }
                 }

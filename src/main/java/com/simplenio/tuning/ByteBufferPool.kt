@@ -2,18 +2,24 @@ package com.simplenio.tuning
 
 import com.simplenio.DebugLogger
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicInteger
 
 object ByteBufferPool : ObjectPool<ByteBuffer>() {
 
     private val logger = DebugLogger(ByteBufferPool::class.java.simpleName)
 
-    private const val MIN_BUFFER_SIZE = 512
-    private val allocated = AtomicInteger()
+    private const val MAX_BUFFER_SIZE = 512
+    private const val MAX_BUFFER_ALLOCATED = 64 * 1024 * 1024 // 64MB
+    private const val SLEEP_TIME = 100L
+    private val allocInUse = AtomicInteger()
 
     @JvmStatic
-    fun getByteBuffer(capacity: Int, isDirect: Boolean = true) : ReusableObject {
+    fun getByteBuffer(capacity: Int, isDirect: Boolean = false) : ReusableObject {
+        while (allocInUse.get() > MAX_BUFFER_ALLOCATED) {
+            Thread.sleep(SLEEP_TIME)
+            logger.log("waiting for buffer reuse, total allocated $allocInUse")
+        }
+
         // get byte buffer has smallest capacity
         var reusableByteBuffer = getMinByOrNull {
             // set compare value out of the sort
@@ -49,12 +55,17 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
         }
 
         val byteBuffer = reusableByteBuffer.get()
-        byteBuffer.clear().limit(capacity).order(ByteOrder.nativeOrder())
-        return reusableByteBuffer
+        byteBuffer.clear().limit(capacity)
+        return reusableByteBuffer.also {
+            allocInUse.addAndGet(it.obj.capacity())
+            it.onRecycle {
+                allocInUse.addAndGet(-it.obj.capacity())
+            }
+        }
     }
 
     @JvmStatic
-    fun getByteBuffer(array: ByteArray, isDirect: Boolean = true) : ReusableObject {
+    fun getByteBuffer(array: ByteArray, isDirect: Boolean = false) : ReusableObject {
         val reusableObj = getByteBuffer(array.size, isDirect)
         reusableObj.get().also {
             it.clear()
@@ -66,17 +77,8 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
 
     override fun clean() {
         super.clean clean0@ {
-            if (it.isDirect)
-                return@clean0 false
-
-            (it.capacity() < MIN_BUFFER_SIZE).also { shouldClean ->
-                // subtract clean capacity
-                if (shouldClean) {
-                    allocated.addAndGet(-it.capacity())
-                }
-            }
+            it.capacity() > MAX_BUFFER_SIZE
         }
-        logger.d("cleaned, total allocated size: $allocated")
     }
 
 }
