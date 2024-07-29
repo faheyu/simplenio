@@ -1,10 +1,5 @@
 package com.simplenio
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.channels.CancelledKeyException
 import java.nio.channels.SelectionKey
@@ -14,36 +9,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.system.measureTimeMillis
 
-class NIOSelector {
+internal object NIOSelector : Thread() {
 
-    companion object {
-        private val logger = DebugLogger(NIOSelector::class.java.simpleName)
+    private val logger = DebugLogger(NIOSelector::class.java.simpleName)
 
-        /**
-         * set this value to change thread pool's corePoolSize
-         */
-        var THREAD_POOL_SIZE = 0
-            set(value) {
-                threadPool.corePoolSize = value
-                field = value
-            }
-        private val threadPool = MyThreadPoolExecutor(THREAD_POOL_SIZE, name = NIOSelector::class.java.simpleName)
-
-        /**
-         * for debug purpose
-         *
-         * TODO: throw an exception when select loop execution time is greater than this value
-         */
-        const val MAX_SELECT_LOOP_TIME = 1_000L
-
-        /**
-         * If the select loop execution time is less than this value,
-         * it will delay further so that the execution time is not less than this value.
-         *
-         * this prevent select loop too fast, leading to GC blocking and consume cpu load
-         */
-        const val MIN_SELECT_LOOP_TIME = 100L
-    }
+    /**
+     * for debug purpose
+     *
+     * TODO: throw an exception when select loop execution time is greater than this value
+     */
+    private const val MAX_SELECT_LOOP_TIME = 500L
 
     private class Registration(val ops: Int, val ioHandler: IOHandler)
 
@@ -78,105 +53,78 @@ class NIOSelector {
      */
     private var loopTime = 0L
 
-    val handlerCount : Int
-        get() {
-            selectorLock.lock()
-            try {
-                // if selector has not opened yet, return registration count instead
-                if (!this::mSelector.isInitialized) {
-                    return synchronized(pendingRegistrations) {
-                        pendingRegistrations.map { it.ioHandler }.toSet().size
-                    }
-                }
+    override fun start() {
+        if (started.getAndSet(true))
+            return
 
-                return mSelector.keys().size
-            } finally {
-                selectorLock.unlock()
-            }
-        }
-
-    protected fun finalize() {
-        // stop after this selector is destroyed
-        stop()
+        super.start()
     }
 
-    fun start() {
-        if (started.getAndSet(true)) return
+    override fun run() {
         running = true
 
-        threadPool.launchCoroutine {
-            // open selector in coroutine to prevent registering blocking
-            // we can open it here as there's no suspend point
-            selectorLock.lock()
+        // open selector first
+        selectorLock.lock()
+        try {
+            mSelector = Selector.open()
+        } finally {
+            selectorLock.unlock()
+        }
+
+        while (running) {
             try {
-                mSelector = Selector.open()
-            } finally {
-                selectorLock.unlock()
-            }
-
-            while (running) {
-                try {
-                    // register all pending
-                    synchronized(pendingRegistrations) {
-                        pendingRegistrations.forEach { registration ->
-                            registration.ioHandler.channel?.register(
-                                mSelector,
-                                registration.ops,
-                                registration.ioHandler
-                            )
-                        }
-
-                        // clear for new registrations
-                        pendingRegistrations.clear()
+                // register all pending
+                synchronized(pendingRegistrations) {
+                    pendingRegistrations.forEach { registration ->
+                        registration.ioHandler.channel?.register(
+                            mSelector,
+                            registration.ops,
+                            registration.ioHandler
+                        )
                     }
 
-                    withContext(threadPool.ioDispatcher) {
-                        // wait for any selector operations is completed
-                        // see https://stackoverflow.com/questions/1057224/java-thread-blocks-while-registering-channel-with-selector-while-select-is-cal/2179612#2179612
-                        // we can lock and unlock here
-                        // as it's in same thread
-                        selectorLock.lock()
-                        selectorLock.unlock()
-
-                        val keyCount = mSelector.selectNow() // use selectNow() to improve concurrency
-                        logger.d("selected $keyCount keys")
-                    }
-
-                    val it = mSelector.selectedKeys().iterator()
-                    loopTime = measureTimeMillis {
-                        coroutineScope {
-                            while (it.hasNext()) {
-                                val selectionKey = it.next()
-                                it.remove()
-
-                                launch {
-                                    val isConnectOp =
-                                        selectionKey.interestOps() and SelectionKey.OP_CONNECT == SelectionKey.OP_CONNECT
-
-                                    if (selectionKey.isValid) {
-                                        handleKey(selectionKey)
-                                    }
-
-                                    if (isConnectOp) {
-                                        // after handled a connect operation, release the connection queue
-                                        NIOManager.resumeConnect()
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (loopTime > MAX_SELECT_LOOP_TIME) {
-                        logger.w("select loop took $loopTime ms")
-                    } else if (loopTime < MIN_SELECT_LOOP_TIME) {
-                        delay(MIN_SELECT_LOOP_TIME - loopTime)
-                    }
-
-                } catch (_: CancelledKeyException) {
-
-                } catch (e: Throwable) {
-                    logger.e("NIO selector exception", e)
+                    // clear for new registrations
+                    pendingRegistrations.clear()
                 }
+
+                // wait for any selector operations is completed
+                // see https://stackoverflow.com/questions/1057224/java-thread-blocks-while-registering-channel-with-selector-while-select-is-cal/2179612#2179612
+                // we can lock and unlock here
+                // as it's in same thread
+                selectorLock.lock()
+                selectorLock.unlock()
+
+                val keyCount = mSelector.select(10L)
+                logger.d("selected $keyCount keys")
+
+                val it = mSelector.selectedKeys().iterator()
+                loopTime = measureTimeMillis {
+                    while (it.hasNext()) {
+                        val selectionKey = it.next()
+                        it.remove()
+
+                        val isConnectOp =
+                            selectionKey.interestOps() and SelectionKey.OP_CONNECT == SelectionKey.OP_CONNECT
+
+                        if (selectionKey.isValid) {
+                            handleKey(selectionKey)
+                        }
+
+                        if (isConnectOp) {
+                            // after handled a connect operation, release the connection queue
+                            NIOManager.resumeConnect()
+                        }
+                    }
+                }
+
+                if (loopTime > MAX_SELECT_LOOP_TIME) {
+                    logger.log("select loop took $loopTime ms")
+                }
+
+            } catch (_: CancelledKeyException) {
+
+            } catch (e: Throwable) {
+                logger.e("NIO selector exception", e)
             }
         }
     }
@@ -186,7 +134,7 @@ class NIOSelector {
      *
      * @param key selected key
      */
-    private suspend fun handleKey(key: SelectionKey) = withContext(Dispatchers.IO) {
+    private fun handleKey(key: SelectionKey) {
         val ioHandler = key.attachment() as IOHandler
 
         try {
@@ -209,7 +157,9 @@ class NIOSelector {
                     if (key.isReadable) {
                         ioHandler.onRead()
                     }
+
                     if (key.isWritable) {
+                        interestOps = SelectionKey.OP_READ
                         ioHandler.onWrite()
                     }
                 }
@@ -238,13 +188,13 @@ class NIOSelector {
         }
 
         // we don't need to wake up selector to prevent blocking
-        // as we use selectNow() and we had queued this registration which will be registered in selector thread
+        // as we had queued this registration which will be registered in selector thread
     }
 
     /**
      * Stop and close select loop
      */
-    fun stop() {
+    fun stopThread() {
         // if it has been stopped or has not started, do nothing
         if (!started.getAndSet(false))
             return
@@ -277,6 +227,9 @@ class NIOSelector {
         } finally {
             selectorLock.unlock()
         }
+
+        logger.d("waiting for thread stopped")
+        join()
     }
 
     /**

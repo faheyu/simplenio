@@ -12,18 +12,13 @@ object NIOManager {
     private const val MAX_PENDING_CONNECTIONS = 8
     private val pendingConnections = LinkedBlockingQueue<IOHandler>(MAX_PENDING_CONNECTIONS)
     private val connectContinuations = HashMap<IOHandler, Continuation<Unit>>()
-    private val connectExecutor = MyThreadPoolExecutor(MAX_PENDING_CONNECTIONS)
-
-    private const val HANDLER_PER_SELECTOR = 50
-    private val channelSelectorMap = HashMap<IOHandler, NIOSelector>()
+    val threadPool = MyThreadPoolExecutor(MAX_PENDING_CONNECTIONS)
 
     /**
      * Stop all selector loops
      */
-    fun stopAllSelectors() {
-        synchronized(channelSelectorMap) {
-            channelSelectorMap.values.forEach { it.stop() }
-        }
+    fun stopSelector() {
+        NIOSelector.stopThread()
     }
 
     /**
@@ -32,11 +27,7 @@ object NIOManager {
      * @param ioHandler handler has channel to close
      */
     fun closeChannel(ioHandler: IOHandler) {
-        getSelector(ioHandler).closeChannel(ioHandler)
-        // remove from map
-        synchronized(channelSelectorMap) {
-            channelSelectorMap.remove(ioHandler)
-        }
+        NIOSelector.closeChannel(ioHandler)
     }
 
     /**
@@ -46,7 +37,7 @@ object NIOManager {
      * @param onConnect callback invoked when start connection
      */
     fun pendingConnect(ioHandler: IOHandler, onConnect: suspend () -> Unit) {
-        connectExecutor.launchCoroutine {
+        threadPool.launchCoroutine {
             waitForPending(ioHandler)
 
             // perform connection
@@ -60,40 +51,7 @@ object NIOManager {
      * register a handler to a selector
      */
     fun register(ioHandler: IOHandler, ops: Int) {
-        getSelector(ioHandler).register(ioHandler, ops)
-    }
-
-
-    /**
-     * get selector has minimum registered handlers
-     *
-     * @param ioHandler handler needs to be registered
-     */
-    private fun getSelector(ioHandler: IOHandler) : NIOSelector {
-        synchronized(channelSelectorMap) {
-            var selector = channelSelectorMap[ioHandler]
-
-            if (selector != null) {
-                // we don't need to check limit
-                // as it is never greater than limit
-                return selector
-            }
-
-            selector = channelSelectorMap.values
-                .minByOrNull {
-                    it.handlerCount
-                }
-                ?: NIOSelector() // create new one if list is empty
-
-            // if this selector reach the limit, create new one
-            if (selector.handlerCount >= HANDLER_PER_SELECTOR) {
-                selector = NIOSelector()
-            }
-
-            channelSelectorMap[ioHandler] = selector
-            logger.d("getSelector handler count: ${selector.handlerCount}")
-            return selector
-        }
+        NIOSelector.register(ioHandler, ops)
     }
 
     /**
