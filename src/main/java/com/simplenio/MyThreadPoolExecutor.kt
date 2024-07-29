@@ -112,7 +112,7 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
     /**
      * the dispatcher to launch coroutines
      */
-    private val coroutineDispatcher = asCoroutineDispatcher()
+    val coroutineDispatcher = asCoroutineDispatcher()
 
     /**
      * [Dispatchers.IO] with customized thread pool size
