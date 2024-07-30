@@ -48,7 +48,10 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
                 if (it.capacity() < capacity)
                     return@getMinByOrNull Int.MAX_VALUE
 
-                it.capacity()
+                if (it.capacity() >= capacity) // here is what we want
+                    return@getMinByOrNull it.capacity()
+
+                Int.MAX_VALUE // ignore other results
             }?.let {
                 val byteBuffer = it.get()
 
