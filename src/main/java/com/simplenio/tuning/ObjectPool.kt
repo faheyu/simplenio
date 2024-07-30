@@ -30,7 +30,7 @@ abstract class ObjectPool<T: Any> {
         }
 
         fun recycle() {
-            synchronized(this@ObjectPool) {
+            synchronized(pool) {
                 if (!inUse)
                     return
 
@@ -53,7 +53,7 @@ abstract class ObjectPool<T: Any> {
      * @return the reusable object or null if not found
      */
     protected fun get(predicate: ((T) -> Boolean)? = null) : ReusableObject? {
-        synchronized(this) {
+        synchronized(pool) {
             var reusableObject : ReusableObject
 
             // find usable object not in use
@@ -82,7 +82,7 @@ abstract class ObjectPool<T: Any> {
      * @return the reusable object or null if not found
      */
     fun <R : Comparable<R>> getMinByOrNull(selector: (T) -> R) : ReusableObject? {
-        synchronized(this) {
+        synchronized(pool) {
             // get not in use object, and get min by selector
             val reusableObject = pool.filter { !it.inUse }.minByOrNull {
                 selector(it.obj)
@@ -126,7 +126,7 @@ abstract class ObjectPool<T: Any> {
         // clean first
         clean()
 
-        synchronized(this) {
+        synchronized(pool) {
             val reusableObject = ReusableObject(obj)
             reusableObject.inUse = inUse
             pool.addLast(reusableObject)
@@ -154,7 +154,7 @@ abstract class ObjectPool<T: Any> {
      * @param filter the condition to remove the [ReusableObject] from the pool.
      */
     protected fun clean(filter: (T) -> Boolean) {
-        synchronized(this) {
+        synchronized(pool) {
             pool.iterator().let {
                 while (it.hasNext()) {
                     val reusableObject = it.next()
