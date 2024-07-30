@@ -11,7 +11,11 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
     private const val MAX_BUFFER_SIZE = 512
     private const val MAX_BUFFER_ALLOCATED = 64 * 1024 * 1024 // 64MB
     private const val SLEEP_TIME = 100L
-    private val allocInUse = AtomicInteger()
+
+    /**
+     * total byte buffer size allocated from this pool
+     */
+    private val totalAllocated = AtomicInteger()
 
     /**
      * Get and clear byte buffer not in used in the pool or allocate new one if not found any.
@@ -25,34 +29,41 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
      */
     @JvmStatic
     fun getByteBuffer(capacity: Int, isDirect: Boolean = false) : ReusableObject {
-        while (allocInUse.get() > MAX_BUFFER_ALLOCATED) {
-            Thread.sleep(SLEEP_TIME)
-            logger.log("waiting for buffer reuse, total allocated $allocInUse")
-        }
+        var reusableByteBuffer : ReusableObject?
 
-        // get byte buffer has smallest capacity
-        var reusableByteBuffer = getMinByOrNull {
-            // set compare value out of the sort
-            // in order to ignore these byte buffer
-            if (it.isDirect != isDirect)
-                return@getMinByOrNull Int.MAX_VALUE
-            if (it.capacity() < capacity)
-                return@getMinByOrNull Int.MAX_VALUE
+        // ensure total allocated size is not larger than limit
+        while (true) {
+            if (totalAllocated.get() > MAX_BUFFER_ALLOCATED) {
+                logger.log("waiting for buffer reuse, total allocated $totalAllocated")
+                Thread.sleep(SLEEP_TIME)
+                continue
+            }
 
-            it.capacity()
-        }?.let {
-            val byteBuffer = it.get()
+            // get byte buffer has smallest capacity
+            reusableByteBuffer = getMinByOrNull {
+                // set compare value out of the sort
+                // in order to ignore these byte buffer
+                if (it.isDirect != isDirect)
+                    return@getMinByOrNull Int.MAX_VALUE
+                if (it.capacity() < capacity)
+                    return@getMinByOrNull Int.MAX_VALUE
 
-            // we can get the byte buffer has capacity < capacity to use
-            // which means no such byte buffer has capacity equals or greater than capacity need to use
-            if (byteBuffer.capacity() < capacity)
-                return@let null
+                it.capacity()
+            }?.let {
+                val byteBuffer = it.get()
 
-            // check if byte buffer is direct or not
-            if (byteBuffer.isDirect != isDirect)
-                return@let null
+                // we can get the byte buffer has capacity < capacity to use
+                // which means no such byte buffer has capacity equals or greater than capacity need to use
+                if (byteBuffer.capacity() < capacity)
+                    return@let null
 
-            it
+                // check if byte buffer is direct or not
+                if (byteBuffer.isDirect != isDirect)
+                    return@let null
+
+                it
+            }
+            break
         }
 
         // allocate new one if not found
@@ -61,17 +72,14 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
                 add(ByteBuffer.allocateDirect(capacity), true)
             } else {
                 add(ByteBuffer.allocate(capacity), true)
+            }.also {
+                totalAllocated.addAndGet(capacity)
             }
         }
 
         val byteBuffer = reusableByteBuffer.get()
         byteBuffer.clear().limit(capacity)
-        return reusableByteBuffer.also {
-            allocInUse.addAndGet(it.obj.capacity())
-            it.onRecycle {
-                allocInUse.addAndGet(-it.obj.capacity())
-            }
-        }
+        return reusableByteBuffer
     }
 
     /**
@@ -90,7 +98,11 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
 
     override fun clean() {
         super.clean clean0@ {
-            it.capacity() > MAX_BUFFER_SIZE
+            (it.capacity() > MAX_BUFFER_SIZE).also { shouldClean ->
+                if (shouldClean) {
+                    totalAllocated.addAndGet(-it.capacity())
+                }
+            }
         }
     }
 
