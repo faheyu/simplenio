@@ -57,7 +57,7 @@ abstract class ObjectPool<T: Any> {
                 logger.log(
                     "ReusableObject[obj=$obj] is not recycled when garbage collected" +
                         // get stack trace to know where cause leaks
-                        "\n${Thread.currentThread().stackTrace}"
+                        "\n${Thread.currentThread().stackTrace.joinToString("\n")}"
                 )
             }
         }
