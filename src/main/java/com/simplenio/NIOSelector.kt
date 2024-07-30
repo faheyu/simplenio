@@ -14,9 +14,8 @@ internal object NIOSelector : Thread() {
     private val logger = DebugLogger(NIOSelector::class.java.simpleName)
 
     /**
-     * for debug purpose
-     *
-     * TODO: throw an exception when select loop execution time is greater than this value
+     * when select loop greater than this value,
+     * it will throw a [RuntimeException] to ensure select loop should not be blocking
      */
     private const val MAX_SELECT_LOOP_TIME = 500L
 
@@ -118,7 +117,10 @@ internal object NIOSelector : Thread() {
                 }
 
                 if (loopTime > MAX_SELECT_LOOP_TIME) {
-                    logger.log("select loop took $loopTime ms")
+                    /**
+                     * This ensure select loop should not be blocking
+                     */
+                    throw RuntimeException("Select loop too long: $loopTime ms")
                 }
 
             } catch (_: CancelledKeyException) {
