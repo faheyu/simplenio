@@ -1,10 +1,13 @@
 package com.simplenio.tuning
 
+import com.simplenio.DebugLogger
 import java.util.LinkedList
 
 abstract class ObjectPool<T: Any> {
 
     companion object {
+        private val logger = DebugLogger(ObjectPool::class.java.simpleName)
+
         /**
          * max number of reusable objects in the pool
          */
@@ -41,6 +44,22 @@ abstract class ObjectPool<T: Any> {
 
         fun onRecycle(listener: () -> Unit) {
             onRecycleListener = listener
+        }
+
+        protected fun finalize() {
+            /**
+             * we can not recycle when garbage collected,
+             * because if we call [ReusableObject.get] after get the [ReusableObject] from the pool,
+             * it would be GC immediately through it still in used
+             */
+
+            if (inUse) {
+                logger.log(
+                    "ReusableObject[obj=$obj] is not recycled when garbage collected" +
+                        // get stack trace to know where cause leaks
+                        "\n${Thread.currentThread().stackTrace}"
+                )
+            }
         }
     }
 
