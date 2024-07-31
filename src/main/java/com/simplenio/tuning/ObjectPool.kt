@@ -46,16 +46,19 @@ abstract class ObjectPool<T: Any> {
             onRecycleListener = listener
         }
 
+        override fun toString(): String {
+            return "ReusableObject[obj=$obj]"
+        }
+
         protected fun finalize() {
             /**
              * we can not recycle when garbage collected,
-             * because if we call [ReusableObject.get] after get the [ReusableObject] from the pool,
-             * it would be GC immediately through it still in used
+             * as this [ReusableObject] holds the actual object reference, it only be GC when the actual object is GC
              */
 
             if (inUse) {
                 logger.log(
-                    "ReusableObject[obj=$obj] is not recycled when garbage collected" +
+                    "$this is not recycled when garbage collected" +
                         // get stack trace to know where cause leaks
                         "\n${Thread.currentThread().stackTrace.joinToString("\n")}"
                 )
@@ -64,6 +67,9 @@ abstract class ObjectPool<T: Any> {
     }
 
     private val pool = LinkedList<ReusableObject>()
+
+    val poolSize : Int
+        get() = synchronized(pool) { pool.size }
 
     /**
      * get the object is not used by anywhere and mark it as in use
