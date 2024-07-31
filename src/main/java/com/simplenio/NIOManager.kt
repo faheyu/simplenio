@@ -62,14 +62,14 @@ object NIOManager {
     private suspend fun waitForPending(ioHandler: IOHandler) {
         // check if this handler already queued
         if (pendingConnections.indexOf(ioHandler) != -1) {
-            logger.log("connection already queued, remove it before queue again")
+            logger.w("connection already queued, remove it before queue again")
             pendingConnections.remove(ioHandler)
         }
 
         // try to add this handler to the queue
         // if the queue is full, it will be suspended
         if (!pendingConnections.offer(ioHandler)) {
-            logger.log("waiting for pending connection: ${pendingConnections.size}")
+            logger.d("waiting for pending connection: ${pendingConnections.size}")
 
             // suspend here until resumed (maybe by selector)
             suspendCancellableCoroutine {
