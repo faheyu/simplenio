@@ -8,7 +8,7 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
 
     private val logger = DebugLogger(ByteBufferPool::class.java.simpleName)
 
-    private const val MAX_BUFFER_SIZE = 512
+    private const val MAX_BUFFER_SIZE = 8192
     private const val MAX_BUFFER_ALLOCATED = 64 * 1024 * 1024 // 64MB
     private const val SLEEP_TIME = 100L
 
@@ -35,6 +35,7 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
         while (true) {
             if (totalAllocated.get() > MAX_BUFFER_ALLOCATED) {
                 logger.log("waiting for buffer reuse, total allocated $totalAllocated")
+                clean()
                 Thread.sleep(SLEEP_TIME)
                 continue
             }
@@ -77,12 +78,17 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
                 add(ByteBuffer.allocate(capacity), true)
             }.also {
                 totalAllocated.addAndGet(capacity)
+                logger.d("allocate new buffer size $capacity, total $totalAllocated")
             }
         }
 
         val byteBuffer = reusableByteBuffer.get()
         byteBuffer.clear().limit(capacity)
-        return reusableByteBuffer
+        return reusableByteBuffer.also {
+            it.onRecycle {
+                logger.d("recycle $reusableByteBuffer, total allocated $totalAllocated")
+            }
+        }
     }
 
     /**
@@ -100,10 +106,11 @@ object ByteBufferPool : ObjectPool<ByteBuffer>() {
     }
 
     override fun clean() {
-        super.clean clean0@ {
-            (it.capacity() > MAX_BUFFER_SIZE).also { shouldClean ->
+        super.clean {
+            (it.capacity() > MAX_BUFFER_SIZE || poolSize > MAX_OBJECTS).also { shouldClean ->
                 if (shouldClean) {
                     totalAllocated.addAndGet(-it.capacity())
+                    logger.d("clean, total $totalAllocated")
                 }
             }
         }
