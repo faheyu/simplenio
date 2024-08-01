@@ -4,7 +4,6 @@ import com.simplenio.DebugLogger
 import com.simplenio.NIOManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SelectableChannel
@@ -17,19 +16,6 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
         private val logger = DebugLogger(BaseTCPChannel::class.java.simpleName)
         private const val SO_TIMEOUT = 5_000L
         private const val CONNECT_TIMEOUT = 10_000L
-
-        private const val CONN_PROC_NOT_CONNECT = 0
-        private const val CONN_PROC_CONNECT = 1
-        private const val CONN_PROC_CONNECTED = 5
-        private const val CONN_PROC_CLOSE = 6
-
-        const val ERR_CONNECT_TIMEOUT = 0
-        const val ERR_SERVER_CLOSE = 1
-        const val ERR_READ_EXCEPTION = 2
-        const val ERR_SEND_EXCEPTION = 3
-        const val ERR_CONNECT_EXCEPTION = 4
-        const val ERR_CONNECT_ASSERTION = 5
-        const val ERR_CONNECTION_NOT_PENDING = 6
     }
 
     /**
@@ -54,80 +40,32 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
         threadPool.removeSavedTask(mTimeoutCheckTask)
     }
 
-    private fun doSend(): Int {
-        @Suppress("BlockingMethodInNonBlockingContext")
-        return if (!writeBuffer.hasRemaining()) {
-            -1
-        } else try {
-            val socketChannel = socketChannel
+    override fun doRead(readBuffer: ByteBuffer): Int {
+        return socketChannel!!.read(readBuffer)
+    }
 
-            if (socketChannel != null && socketChannel.isConnected) {
-                synchronized(this) {
-                    // perform write
-                    return this.socketChannel!!.write(writeBuffer)
-                }
-            }
-
+    override fun doWrite(writeBuffer: ByteBuffer): Int {
+        val channel = socketChannel
+        if (channel == null || !channel.isConnected) {
             logger.e("trying to write null or not connected channel $socketAddress")
-            -1
-        } catch (e: Exception) {
-            logger.e("doSend exception, $socketAddress", e)
-            onError(ERR_SEND_EXCEPTION, e.message)
-            -1
+            return -1
         }
+
+        return channel.write(writeBuffer)
     }
 
-    override fun onRead() {
-        if (socketChannel == null) {
-            logger.e("trying to read null channel $socketChannel")
-            return
-        }
-
-        try {
-            readBuffer.clear()
-            val read = socketChannel!!.read(readBuffer)
-
-            if (read <= 0) {
-                onError(ERR_SERVER_CLOSE, "read $read, server closed, conn: $socketChannel")
-            }
-        } catch (e: Exception) {
-            logger.e("TCP onRead exception @$socketAddress", e)
-            if (e is IOException) {
-                onError(ERR_READ_EXCEPTION, e.message)
-            }
-        }
-    }
-
-    override fun onWrite() {
-        logger.d("onWrite send buffer, len:" + writeBuffer.capacity())
-        doSend()
+    override fun handlePacket(packet: ByteBuffer) {
+        TODO("Not yet implemented")
     }
 
     override val channel: SelectableChannel?
         get() = socketChannel
 
-    open fun onError(code: Int, info: String?) {
-        val reason = when (code) {
-            ERR_SERVER_CLOSE -> "server closed"
-            ERR_CONNECT_ASSERTION -> "connect assertion"
-            ERR_CONNECT_EXCEPTION -> "connect exception"
-            ERR_CONNECT_TIMEOUT -> "connect timeout"
-            ERR_CONNECTION_NOT_PENDING -> "connection not pending"
-            ERR_SEND_EXCEPTION -> "send exception"
-            ERR_READ_EXCEPTION -> "read expcetion"
-            else -> null
-        }
-
-        logger.e("error: $socketAddress, reason=$reason, err=$info", Exception())
-        close()
-    }
-
     override fun onConnected(): Boolean {
         return try {
             if (!socketChannel!!.isConnectionPending) {
-                logger.e("TCP is not in connection pending state.")
                 removeWaitConnectTimeout()
-                onError(ERR_CONNECTION_NOT_PENDING, null)
+                onError(ERR_CONNECTION_NOT_PENDING, "not in connection pending state.")
                 return false
             }
 
@@ -165,7 +103,6 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
                 }
             }
 
-            readBuffer.clear()
             true
         } catch (e: Throwable) {
             removeWaitConnectTimeout()
@@ -178,13 +115,6 @@ open class BaseTCPChannel(socketAddress: InetSocketAddress) : AbstractChannel(so
 
             false
         }
-    }
-
-    override fun send(byteBuffer: ByteBuffer): Boolean {
-        writeBuffer.clear()
-        writeBuffer.put(byteBuffer)
-        writeBuffer.flip()
-        return writeBuffer.capacity() > 0
     }
 
     override fun close() {
