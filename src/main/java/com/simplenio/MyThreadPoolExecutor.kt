@@ -270,7 +270,13 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
 
                         list.iterator().let { listIterator ->
                             while (listIterator.hasNext()) {
-                                val future = listIterator.next()
+                                val future = listIterator.next() as MyFutureTask<*>
+
+                                // we don't remove periodic task so we can cancel it later
+                                if (future.isPeriodic) {
+                                    continue
+                                }
+
                                 if (future.isDone || future.isCancelled) {
                                     listIterator.remove()
                                     cleared += 1
