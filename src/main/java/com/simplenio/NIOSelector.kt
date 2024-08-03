@@ -17,7 +17,7 @@ internal object NIOSelector : Thread() {
      * when select loop greater than this value,
      * it will throw a [RuntimeException] to ensure select loop should not be blocking
      */
-    private const val MAX_SELECT_LOOP_TIME = 500L
+    private const val MAX_SELECT_LOOP_TIME = 200L
 
     private class Registration(val ops: Int, val ioHandler: IOHandler)
 
@@ -161,7 +161,6 @@ internal object NIOSelector : Thread() {
                     }
 
                     if (key.isWritable) {
-                        interestOps = SelectionKey.OP_READ
                         ioHandler.onWrite()
                     }
                 }
