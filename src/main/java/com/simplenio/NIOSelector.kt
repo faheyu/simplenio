@@ -94,7 +94,8 @@ internal object NIOSelector : Thread() {
                 selectorLock.unlock()
 
                 val keyCount = mSelector.select(100L)
-                logger.d("selected $keyCount keys")
+                if (keyCount > 0)
+                    logger.d("selected $keyCount keys")
 
                 val it = mSelector.selectedKeys().iterator()
                 loopTime = measureTimeMillis {
