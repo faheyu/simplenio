@@ -147,11 +147,11 @@ internal object NIOSelector : Thread() {
             } else {
                 var interestOps = key.interestOps()
 
-                if (key.isConnectable) {
-                    if (ioHandler.onConnected()) {
-                        // update ops to read or write
-                        interestOps = SelectionKey.OP_READ or SelectionKey.OP_WRITE
-                    }
+                if (key.isAcceptable) {
+                    ioHandler.onAccepted()
+                } else if (key.isConnectable && ioHandler.onConnected()) {
+                    // update ops to read or write
+                    interestOps = SelectionKey.OP_READ or SelectionKey.OP_WRITE
                 } else if (key.isValid) {
                     // ops should be read or write here
                     // so we don't need to update ops

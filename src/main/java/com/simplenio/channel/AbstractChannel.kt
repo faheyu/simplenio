@@ -121,6 +121,10 @@ abstract class AbstractChannel(val socketAddress: InetSocketAddress) : IOHandler
         }
     }
 
+    override fun onAccepted() {
+        throw UnsupportedOperationException()
+    }
+
     protected open fun onError(errorCode: Int, info: String?) {
         val reason = when (errorCode) {
             ERR_SERVER_CLOSE -> "server closed"

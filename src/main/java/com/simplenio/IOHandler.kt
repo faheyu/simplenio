@@ -18,9 +18,14 @@ interface IOHandler {
     fun onWrite()
 
     /**
-     * callback invoked when channel is connected
+     * this function invoked when channel is connected
      */
     fun onConnected(): Boolean
+
+    /**
+     * this function invoked when channel accepted a new connection
+     */
+    fun onAccepted()
 
     /**
      * connected channel
