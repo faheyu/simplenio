@@ -14,7 +14,12 @@ internal object NIOSelector : Thread() {
     private val logger = DebugLogger(NIOSelector::class.java.simpleName)
 
     /**
-     * when select loop greater than this value,
+     * ensure select loop time is not less than this value, to reduce cpu load
+     */
+    private const val MIN_SELECT_LOOP_TIME = 100L
+
+    /**
+     * when select loop time greater than this value,
      * it will throw a [RuntimeException] to ensure select loop should not be blocking
      */
     private const val MAX_SELECT_LOOP_TIME = 200L
@@ -93,9 +98,12 @@ internal object NIOSelector : Thread() {
                 selectorLock.lock()
                 selectorLock.unlock()
 
-                val keyCount = mSelector.select(100L)
+                sleep(MIN_SELECT_LOOP_TIME)
+                val keyCount = mSelector.selectNow()
                 if (keyCount > 0)
                     logger.d("selected $keyCount keys")
+                else
+                    continue
 
                 val it = mSelector.selectedKeys().iterator()
                 loopTime = measureTimeMillis {
