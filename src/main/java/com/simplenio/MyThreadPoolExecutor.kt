@@ -101,12 +101,6 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
          */
         const val MAX_EXECUTION_TIME = 100L
 
-        /**
-         * max number of tasks can be cleared when call [clearExpiredTasks]
-         *
-         * make clear time is not too long, as it blocks adding new task when clearing
-         */
-        const val CLEAR_TASK_NUM = 50_000
     }
 
     /**
@@ -280,9 +274,6 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
                                 if (future.isDone || future.isCancelled) {
                                     listIterator.remove()
                                     cleared += 1
-                                    if (cleared > CLEAR_TASK_NUM) {
-                                        return@synchronized
-                                    }
                                 }
                             }
                         }
