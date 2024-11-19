@@ -49,9 +49,12 @@ open class TcpClientChannel : AbstractChannel {
     private lateinit var mReceiveBuffer : ByteBuffer
 
     private var lastActiveTime = 0L
-    
-    constructor(socketAddress: InetSocketAddress) : super(socketAddress)
+
+    constructor(socketAddress: InetSocketAddress): super(socketAddress)
     constructor(connectedSocket: SocketChannel) : super(connectedSocket.remoteAddress as InetSocketAddress) {
+        if (!connectedSocket.isConnected)
+            throw IllegalArgumentException("socket is not connected")
+
         socketChannel = connectedSocket
         setupChannel(socketChannel!!)
         connProc = CONN_PROC_CONNECTED
