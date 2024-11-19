@@ -31,11 +31,14 @@ open class TcpClientChannel : AbstractChannel {
         }
     }
 
+    var keepAliveTimeout = 10_000L
+
     override val channel: SelectableChannel?
         get() = socketChannel
 
     private var socketChannel : SocketChannel? = null
-    private var mTimeoutCheckTask : Future<*>? = null
+    private var mConnectTimeoutCheckTask : Future<*>? = null
+    private var mKeepAliveTimeoutCheckTask : Future<*>? = null
 
     private val writeLock = Object()
 
@@ -43,8 +46,9 @@ open class TcpClientChannel : AbstractChannel {
      * The buffer used to send data partly
      */
     private var mWriteBuffer : ByteBuffer? = null
-
     private lateinit var mReceiveBuffer : ByteBuffer
+
+    private var lastActiveTime = 0L
     
     constructor(socketAddress: InetSocketAddress) : super(socketAddress)
     constructor(connectedSocket: SocketChannel) : super(connectedSocket.remoteAddress as InetSocketAddress) {
@@ -120,7 +124,7 @@ open class TcpClientChannel : AbstractChannel {
             }
 
             if (read < 0) {
-                onError(ERR_SERVER_CLOSE, "read $read, server closed connection: $socketAddress")
+                onError(ERR_PEER_CLOSE, "read $read, peer closed connection: $socketAddress")
                 return
             } else if (read > 0) {
                 sReadBuffer.flip()
@@ -156,9 +160,27 @@ open class TcpClientChannel : AbstractChannel {
                 return false
             }
 
+            // channel is connected here
             logger.info("Connected to: $socketAddress")
             connProc = CONN_PROC_CONNECTED
             removeWaitConnectTimeout()
+
+            // auto close channel when inactive
+            lastActiveTime = System.currentTimeMillis()
+            mKeepAliveTimeoutCheckTask?.cancel(true)
+            mKeepAliveTimeoutCheckTask = threadPool.scheduleWithFixedDelay(
+                {
+                    if(lastActiveTime + keepAliveTimeout <= System.currentTimeMillis()) {
+                        logger.warning("keep alive timeout, close the channel")
+                        close()
+                        mKeepAliveTimeoutCheckTask?.cancel(false)
+                        mKeepAliveTimeoutCheckTask = null
+                    }
+                },
+                1_000L,
+                1_000L,
+                TimeUnit.MILLISECONDS
+            )
 
             return true
         } catch (e: Exception) {
@@ -215,6 +237,9 @@ open class TcpClientChannel : AbstractChannel {
                     if (position() > 0 && validatePacket(this)) {
                         do {
                             val readPacket = readPacket(this)
+                            if (readPacket) {
+                                lastActiveTime = System.currentTimeMillis()
+                            }
                         } while (readPacket)
                     }
                 }
@@ -249,8 +274,8 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     private fun waitConnectTimeout() {
-        mTimeoutCheckTask?.cancel(true)
-        mTimeoutCheckTask = threadPool.schedule(
+        mConnectTimeoutCheckTask?.cancel(true)
+        mConnectTimeoutCheckTask = threadPool.schedule(
             {
                 if (connProc < CONN_PROC_CONNECTED && socketChannel?.isConnected != true) {
                     onError(ERR_CONNECT_TIMEOUT, "connecting timeout $socketAddress")
@@ -262,7 +287,7 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     private fun removeWaitConnectTimeout() {
-        mTimeoutCheckTask?.cancel(true)
-        mTimeoutCheckTask = null
+        mConnectTimeoutCheckTask?.cancel(true)
+        mConnectTimeoutCheckTask = null
     }
 }
