@@ -21,7 +21,7 @@ abstract class AbstractChannel(val socketAddress: InetSocketAddress) : IOHandler
         internal const val CONN_PROC_CLOSE = 6
 
         const val ERR_CONNECT_TIMEOUT = 0
-        const val ERR_SERVER_CLOSE = 1
+        const val ERR_PEER_CLOSE = 1
         const val ERR_READ_EXCEPTION = 2
         const val ERR_SEND_EXCEPTION = 3
         const val ERR_CONNECT_EXCEPTION = 4
@@ -41,7 +41,7 @@ abstract class AbstractChannel(val socketAddress: InetSocketAddress) : IOHandler
 
     protected open fun onError(errorCode: Int, info: String?) {
         val reason = when (errorCode) {
-            ERR_SERVER_CLOSE -> "server closed"
+            ERR_PEER_CLOSE -> "peer closed"
             ERR_CONNECT_ASSERTION -> "connect assertion"
             ERR_CONNECT_EXCEPTION -> "connect exception"
             ERR_CONNECT_TIMEOUT -> "connect timeout"
