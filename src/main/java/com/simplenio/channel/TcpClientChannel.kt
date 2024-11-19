@@ -6,14 +6,18 @@ import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SocketChannel
+import java.util.concurrent.Future
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
 
 open class TcpClientChannel : AbstractChannel {
     companion object {
-        private val logger = Logger.getLogger("TcpClientChannel")
-
         const val SO_TIMEOUT = 5_000
         const val CONNECT_TIMEOUT = 10_000L
+
+        private val logger = Logger.getLogger("TcpClientChannel")
+        private val threadPool = ScheduledThreadPoolExecutor(1)
 
         /**
          * optimize channel config to work with non-blocking mode
@@ -31,6 +35,7 @@ open class TcpClientChannel : AbstractChannel {
         get() = socketChannel
 
     private var socketChannel : SocketChannel? = null
+    private var mTimeoutCheckTask : Future<*>? = null
 
     private val writeLock = Object()
 
@@ -40,12 +45,6 @@ open class TcpClientChannel : AbstractChannel {
     private var mWriteBuffer : ByteBuffer? = null
 
     private lateinit var mReceiveBuffer : ByteBuffer
-
-    private val mTimeoutCheckTask = Runnable {
-        if (connProc < CONN_PROC_CONNECTED && socketChannel?.isConnected != true) {
-            onError(ERR_CONNECT_TIMEOUT, "connecting timeout $socketAddress")
-        }
-    }
     
     constructor(socketAddress: InetSocketAddress) : super(socketAddress)
     constructor(connectedSocket: SocketChannel) : super(connectedSocket.remoteAddress as InetSocketAddress) {
@@ -250,11 +249,20 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     private fun waitConnectTimeout() {
-        threadPool.removeSavedTask(mTimeoutCheckTask)
-        threadPool.scheduleAndSave(mTimeoutCheckTask, CONNECT_TIMEOUT)
+        mTimeoutCheckTask?.cancel(true)
+        mTimeoutCheckTask = threadPool.schedule(
+            {
+                if (connProc < CONN_PROC_CONNECTED && socketChannel?.isConnected != true) {
+                    onError(ERR_CONNECT_TIMEOUT, "connecting timeout $socketAddress")
+                }
+            },
+            CONNECT_TIMEOUT,
+            TimeUnit.MILLISECONDS
+        )
     }
 
     private fun removeWaitConnectTimeout() {
-        threadPool.removeSavedTask(mTimeoutCheckTask)
+        mTimeoutCheckTask?.cancel(true)
+        mTimeoutCheckTask = null
     }
 }

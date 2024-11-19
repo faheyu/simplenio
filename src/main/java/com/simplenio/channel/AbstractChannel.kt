@@ -1,7 +1,6 @@
 package com.simplenio.channel
 
 import com.simplenio.IOHandler
-import com.simplenio.MyThreadPoolExecutor
 import com.simplenio.NIOManager
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
@@ -11,11 +10,6 @@ abstract class AbstractChannel(val socketAddress: InetSocketAddress) : IOHandler
 
     companion object {
         private val logger = Logger.getLogger("AbstractChannel")
-
-        /**
-         * handle background tasks
-         */
-        internal val threadPool = MyThreadPoolExecutor(1)
 
         const val READ_BUFFER_SIZE = 4096
         const val WRITE_BUFFER_SIZE = 4096
