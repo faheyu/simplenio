@@ -7,11 +7,12 @@ import java.nio.channels.Selector
 import java.util.LinkedList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
+import java.util.logging.Logger
 import kotlin.system.measureTimeMillis
 
 internal object NIOSelector : Thread() {
 
-    private val logger = DebugLogger(NIOSelector::class.java.simpleName)
+    private val logger = Logger.getLogger("NIOSelector")
 
     /**
      * ensure select loop time is not less than this value, to reduce cpu load
@@ -62,6 +63,7 @@ internal object NIOSelector : Thread() {
             return
 
         super.start()
+        logger.info("selector started")
     }
 
     override fun run() {
@@ -98,11 +100,8 @@ internal object NIOSelector : Thread() {
                 selectorLock.lock()
                 selectorLock.unlock()
 
-                sleep(MIN_SELECT_LOOP_TIME)
-                val keyCount = mSelector.selectNow()
-                if (keyCount > 0)
-                    logger.d("selected $keyCount keys")
-                else
+                val keyCount = mSelector.select(MIN_SELECT_LOOP_TIME)
+                if (keyCount <= 0)
                     continue
 
                 val it = mSelector.selectedKeys().iterator()
@@ -111,16 +110,8 @@ internal object NIOSelector : Thread() {
                         val selectionKey = it.next()
                         it.remove()
 
-                        val isConnectOp =
-                            selectionKey.interestOps() and SelectionKey.OP_CONNECT == SelectionKey.OP_CONNECT
-
                         if (selectionKey.isValid) {
                             handleKey(selectionKey)
-                        }
-
-                        if (isConnectOp) {
-                            // after handled a connect operation, release the connection queue
-                            NIOManager.resumeConnect()
                         }
                     }
                 }
@@ -130,12 +121,14 @@ internal object NIOSelector : Thread() {
                      * This ensure select loop should not be blocking
                      */
                     throw RuntimeException("Select loop too long: $loopTime ms")
+                } else {
+                    sleep((MIN_SELECT_LOOP_TIME - loopTime).coerceAtLeast(0))
                 }
 
             } catch (_: CancelledKeyException) {
 
             } catch (e: Throwable) {
-                logger.e("NIO selector exception", e)
+                logger.severe("NIO selector exception: $e\n${e.stackTraceToString()}")
             }
         }
     }
@@ -152,24 +145,24 @@ internal object NIOSelector : Thread() {
             if (ioHandler.channel == null) {
                 // if channel is closed or not connected, cancel the key
                 key.cancel()
+                logger.info("cancel key due to channel is null")
             } else {
                 var interestOps = key.interestOps()
 
                 if (key.isAcceptable) {
                     ioHandler.onAccepted()
                 } else if (key.isConnectable && ioHandler.onConnected()) {
-                    // update ops to read or write
+                    // update ops to read and write
                     interestOps = SelectionKey.OP_READ or SelectionKey.OP_WRITE
                 } else if (key.isValid) {
-                    // ops should be read or write here
-                    // so we don't need to update ops
-                    // selector will handle both read and write operation
-
                     if (key.isReadable) {
                         ioHandler.onRead()
-                    }
+                    } else if (key.isWritable) {
+                        // we only register write op when we write data partly
+                        // and it needs to write multiple times in selector loop
+                        interestOps = SelectionKey.OP_READ
 
-                    if (key.isWritable) {
+                        // if it writes data partly, it will register ops to read or write here
                         ioHandler.onWrite()
                     }
                 }
@@ -238,7 +231,7 @@ internal object NIOSelector : Thread() {
             selectorLock.unlock()
         }
 
-        logger.d("waiting for thread stopped")
+        logger.info("waiting for thread stopped")
         join()
     }
 
@@ -277,7 +270,7 @@ internal object NIOSelector : Thread() {
                 }
                 ioHandler.channel?.close()
             } catch (e: Throwable) {
-                logger.e("closeChannel error", e)
+                logger.warning("closeChannel error\n${e.stackTraceToString()}")
             } finally {
                 selectorLock.unlock()
             }

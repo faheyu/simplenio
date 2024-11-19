@@ -19,6 +19,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.logging.Logger
 import kotlin.system.measureTimeMillis
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -93,7 +94,7 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
     }
 
     companion object {
-        private val logger = DebugLogger(MyThreadPoolExecutor::class.java.simpleName)
+        private val logger = Logger.getLogger("MyThreadPoolExecutor")
         private const val DEBUG = false
 
         /**
@@ -175,14 +176,15 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
         super.afterExecute(r, t)
 
         if (
-            t == null
-            && r is Future<*>
+            (t == null)
+            && (r is Future<*>)
             && (r as Future<*>).isDone
+            && futureTasks.containsKey(r)
         ) {
             try {
                 (r as Future<*>).get()
             } catch (ce: CancellationException) {
-                logger.w("task $r is cancelled\n${ce.stackTraceToString()}")
+                logger.warning("task $r is cancelled\n${ce.stackTraceToString()}")
             } catch (ee: ExecutionException) {
                 ee.cause?.let { throw it }
             } catch (ie: InterruptedException) {
@@ -288,7 +290,7 @@ class MyThreadPoolExecutor (corePoolSize: Int = 0, name: String = "mypool"): Sch
         }
 
         if (cleared > 0)
-            logger.log("cleared $cleared expired tasks took $clearTime ms; remain ${futureTasks.size} tasks")
+            logger.info("cleared $cleared expired tasks took $clearTime ms; remain ${futureTasks.size} tasks")
     }
 
     /**
