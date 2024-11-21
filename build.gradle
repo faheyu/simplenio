@@ -1,7 +1,9 @@
 plugins {
-    id 'java-library'
     id 'org.jetbrains.kotlin.jvm'
 }
+
+group = "com.simplenio"
+version = "0.1.0"
 
 kotlin {
     jvmToolchain(17)
