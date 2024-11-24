@@ -32,6 +32,7 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     var keepAliveTimeout = 10_000L
+    protected var isActive = false
 
     override val channel: SelectableChannel?
         get() = socketChannel
@@ -170,6 +171,7 @@ open class TcpClientChannel : AbstractChannel {
 
             // auto close channel when inactive
             lastActiveTime = System.currentTimeMillis()
+            isActive = true
             mKeepAliveTimeoutCheckTask?.cancel(true)
             mKeepAliveTimeoutCheckTask = threadPool.scheduleWithFixedDelay(
                 {
@@ -240,7 +242,7 @@ open class TcpClientChannel : AbstractChannel {
                     if (position() > 0 && validatePacket(this)) {
                         do {
                             val readPacket = readPacket(this)
-                            if (readPacket) {
+                            if (isActive && readPacket) {
                                 lastActiveTime = System.currentTimeMillis()
                             }
                         } while (readPacket)
