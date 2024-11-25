@@ -88,7 +88,17 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     fun send(buffer: ByteBuffer) : Boolean {
+        if (!isConnected()) {
+            logger.warning("socket is not connected when sending")
+            connect()
+            return false
+        }
+
         return doWrite(buffer) > 0
+    }
+
+    fun isConnected() : Boolean {
+        return connProc == CONN_PROC_CONNECTED && socketChannel?.isConnected == true
     }
 
     protected open fun validatePacket(receiveBuffer: ByteBuffer) : Boolean {
@@ -107,10 +117,8 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     override fun onRead() {
-        val channel = socketChannel
-
-        if (channel == null  || !channel.isConnected) {
-            logger.warning("trying to read null or not connected channel $socketAddress")
+        if (!isConnected()) {
+            logger.warning("trying to read not connected channel $socketAddress")
             return
         }
 
@@ -119,7 +127,7 @@ open class TcpClientChannel : AbstractChannel {
             sReadBuffer.clear()
 
             val read = try {
-                channel.read(sReadBuffer)
+                socketChannel!!.read(sReadBuffer)
             } catch (e: Exception) {
                 logger.severe("onRead exception $socketAddress\n${e.stackTraceToString()}")
 
@@ -256,9 +264,7 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     private fun doWrite(outBuffer: ByteBuffer?): Int {
-        val channel = socketChannel
-
-        if (channel == null || !channel.isConnected) {
+        if (!isConnected()) {
             logger.warning("trying to write null or not connected channel $socketAddress")
             return -1
         }
@@ -270,7 +276,7 @@ open class TcpClientChannel : AbstractChannel {
 
             return try {
                 //TODO: implement write data partly
-                channel.write(outBuffer)
+                socketChannel!!.write(outBuffer)
             } catch (e: Exception) {
                 logger.warning("doWrite exception, $socketAddress\n${e.stackTraceToString()}")
                 onError(ERR_SEND_EXCEPTION, e.message ?: "")
