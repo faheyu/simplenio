@@ -107,8 +107,10 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     override fun onRead() {
-        if (channel == null) {
-            logger.warning("trying to read null channel $socketAddress")
+        val channel = socketChannel
+
+        if (channel == null  || !channel.isConnected) {
+            logger.warning("trying to read null or not connected channel $socketAddress")
             return
         }
 
@@ -117,7 +119,7 @@ open class TcpClientChannel : AbstractChannel {
             sReadBuffer.clear()
 
             val read = try {
-                socketChannel!!.read(sReadBuffer)
+                channel.read(sReadBuffer)
             } catch (e: Exception) {
                 logger.severe("onRead exception $socketAddress\n${e.stackTraceToString()}")
 
