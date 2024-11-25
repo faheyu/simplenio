@@ -146,29 +146,18 @@ internal object NIOSelector : Thread() {
                 key.cancel()
                 logger.info("cancel key due to channel is null")
             } else {
-                var interestOps = key.interestOps()
-
                 if (key.isAcceptable) {
                     ioHandler.onAccepted()
                 } else if (key.isConnectable && ioHandler.onConnected()) {
-                    // update ops to read and write
-                    interestOps = SelectionKey.OP_READ or SelectionKey.OP_WRITE
+                    // ready for i/o operations
+                    register(ioHandler, SelectionKey.OP_READ or SelectionKey.OP_WRITE)
                 } else if (key.isValid) {
                     if (key.isReadable) {
                         ioHandler.onRead()
                     } else if (key.isWritable) {
-                        // we only register write op when we write data partly
-                        // and it needs to write multiple times in selector loop
-                        interestOps = SelectionKey.OP_READ
-
-                        // if it writes data partly, it will register ops to read or write here
                         ioHandler.onWrite()
                     }
                 }
-
-                // update the key if ops is updated
-                if (key.interestOps() != interestOps)
-                    register(ioHandler, interestOps)
             }
         } catch (_: CancelledKeyException) {
 

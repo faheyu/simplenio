@@ -5,6 +5,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SelectableChannel
+import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 import java.util.concurrent.Future
 import java.util.concurrent.ScheduledThreadPoolExecutor
@@ -152,7 +153,10 @@ open class TcpClientChannel : AbstractChannel {
 
     override fun onWrite() {
         mWriteBuffer?.also {
-            doWrite(null)
+            if (doWrite(null) <= 0) {
+                // nothing to write, change to read mode
+                NIOManager.register(this, SelectionKey.OP_READ)
+            }
         }
     }
 
