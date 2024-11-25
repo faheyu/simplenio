@@ -101,17 +101,16 @@ internal object NIOSelector : Thread() {
                 selectorLock.unlock()
 
                 val keyCount = mSelector.select(MIN_SELECT_LOOP_TIME)
-                if (keyCount <= 0)
-                    continue
+                if (keyCount > 0) {
+                    val it = mSelector.selectedKeys().iterator()
+                    loopTime = measureTimeMillis {
+                        while (it.hasNext()) {
+                            val selectionKey = it.next()
+                            it.remove()
 
-                val it = mSelector.selectedKeys().iterator()
-                loopTime = measureTimeMillis {
-                    while (it.hasNext()) {
-                        val selectionKey = it.next()
-                        it.remove()
-
-                        if (selectionKey.isValid) {
-                            handleKey(selectionKey)
+                            if (selectionKey.isValid) {
+                                handleKey(selectionKey)
+                            }
                         }
                     }
                 }
@@ -235,45 +234,4 @@ internal object NIOSelector : Thread() {
         join()
     }
 
-    /**
-     * Close the channel of [ioHandler] and remove the key from selection key's set
-     *
-     * @param ioHandler handler which has a channel to close
-     */
-    fun closeChannel(ioHandler: IOHandler) {
-        synchronized(ioHandler) {
-            selectorLock.lock()
-            try {
-                if (this::mSelector.isInitialized) {
-                    try {
-                        ioHandler.channel?.keyFor(mSelector)?.let {
-                            it.cancel()
-
-                            // remove from registration queue
-                            synchronized(pendingRegistrations) {
-                                pendingRegistrations.iterator().let { listItertator ->
-                                    // loop through registration queue
-                                    while (listItertator.hasNext()) {
-                                        listItertator.next().let { registration ->
-                                            // match the handler, remove it
-                                            if (registration.ioHandler === ioHandler) {
-                                                listItertator.remove()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (_: IOException) {
-
-                    }
-                }
-                ioHandler.channel?.close()
-            } catch (e: Throwable) {
-                logger.warning("closeChannel error\n${e.stackTraceToString()}")
-            } finally {
-                selectorLock.unlock()
-            }
-        }
-    }
 }

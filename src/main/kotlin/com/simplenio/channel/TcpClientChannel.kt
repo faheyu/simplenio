@@ -122,37 +122,32 @@ open class TcpClientChannel : AbstractChannel {
             return
         }
 
-        do {
-            // clear first
-            sReadBuffer.clear()
+        // clear first
+        sReadBuffer.clear()
 
-            val read = try {
-                socketChannel!!.read(sReadBuffer)
-            } catch (e: Exception) {
-                logger.severe("onRead exception $socketAddress\n${e.stackTraceToString()}")
+        val read = try {
+            socketChannel!!.read(sReadBuffer)
+        } catch (e: Exception) {
+            logger.severe("onRead exception $socketAddress\n${e.stackTraceToString()}")
 
-                if (e is IOException) {
-                    onError(ERR_READ_EXCEPTION, e.message ?: "")
-                }
-                return
+            if (e is IOException) {
+                onError(ERR_READ_EXCEPTION, e.message ?: "")
             }
+            return
+        }
 
-            if (read < 0) {
-                onError(ERR_PEER_CLOSE, "read $read, peer closed connection: $socketAddress")
-                return
-            } else if (read > 0) {
-                sReadBuffer.flip()
+        if (read < 0) {
+            onError(ERR_PEER_CLOSE, "read $read, peer closed connection: $socketAddress")
+            return
+        } else if (read > 0) {
+            sReadBuffer.flip()
 
-                // copy to new buffer to read other packets
-                val packet = ByteBuffer.allocate(read)
-                packet.put(sReadBuffer)
-                packet.flip()
-                receivePacket(packet)
-            }
-
-            // read until the read buffer is not full
-            // to ensure we read all bytes from channel
-        } while (read >= sReadBuffer.capacity())
+            // copy to new buffer to read other packets
+            val packet = ByteBuffer.allocate(read)
+            packet.put(sReadBuffer)
+            packet.flip()
+            receivePacket(packet)
+        }
     }
 
     override fun onWrite() {
@@ -300,7 +295,7 @@ open class TcpClientChannel : AbstractChannel {
     }
 
     private fun removeWaitConnectTimeout() {
-        mConnectTimeoutCheckTask?.cancel(true)
+        mConnectTimeoutCheckTask?.cancel(false)
         mConnectTimeoutCheckTask = null
     }
 }

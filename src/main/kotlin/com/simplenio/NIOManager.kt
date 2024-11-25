@@ -11,15 +11,6 @@ object NIOManager {
     }
 
     /**
-     * close and remove channel if [ioHandler] from channel-selector map
-     *
-     * @param ioHandler handler has channel to close
-     */
-    fun closeChannel(ioHandler: IOHandler) {
-        NIOSelector.closeChannel(ioHandler)
-    }
-
-    /**
      * register a handler to a selector
      */
     fun register(ioHandler: IOHandler, ops: Int) {

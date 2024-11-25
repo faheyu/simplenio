@@ -62,7 +62,7 @@ abstract class AbstractChannel(val socketAddress: InetSocketAddress) : IOHandler
      */
     open fun close() {
         logger.info("close channel $socketAddress")
-        NIOManager.closeChannel(this)
+        channel?.close()
         connProc = CONN_PROC_CLOSE
     }
 }
