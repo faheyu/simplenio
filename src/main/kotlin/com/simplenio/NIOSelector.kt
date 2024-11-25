@@ -101,9 +101,9 @@ internal object NIOSelector : Thread() {
                 selectorLock.unlock()
 
                 val keyCount = mSelector.select(MIN_SELECT_LOOP_TIME)
-                if (keyCount > 0) {
-                    val it = mSelector.selectedKeys().iterator()
-                    loopTime = measureTimeMillis {
+                loopTime = measureTimeMillis {
+                    if (keyCount > 0) {
+                        val it = mSelector.selectedKeys().iterator()
                         while (it.hasNext()) {
                             val selectionKey = it.next()
                             it.remove()
@@ -117,7 +117,7 @@ internal object NIOSelector : Thread() {
 
                 if (loopTime > MAX_SELECT_LOOP_TIME) {
                     /**
-                     * This ensure select loop should not be blocking
+                     * This ensures select loop should not be blocking
                      */
                     throw RuntimeException("Select loop too long: $loopTime ms")
                 } else {
