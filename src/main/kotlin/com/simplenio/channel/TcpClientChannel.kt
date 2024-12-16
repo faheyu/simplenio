@@ -53,7 +53,7 @@ open class TcpClientChannel : AbstractChannel {
     private var lastActiveTime = 0L
 
     constructor(socketAddress: InetSocketAddress): super(socketAddress)
-    constructor(connectedSocket: SocketChannel) : super(connectedSocket.remoteAddress as InetSocketAddress) {
+    constructor(connectedSocket: SocketChannel) : super(connectedSocket.socket().remoteSocketAddress as InetSocketAddress) {
         if (!connectedSocket.isConnected)
             throw IllegalArgumentException("socket is not connected")
 
