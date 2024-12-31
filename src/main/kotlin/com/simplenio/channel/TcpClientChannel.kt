@@ -4,6 +4,7 @@ import com.simplenio.NIOManager
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.channels.SelectableChannel
 import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
@@ -123,31 +124,35 @@ open class TcpClientChannel : AbstractChannel {
             return
         }
 
-        // clear first
-        sReadBuffer.clear()
+        while (true) {
+            // clear first
+            sReadBuffer.clear()
 
-        val read = try {
-            socketChannel!!.read(sReadBuffer)
-        } catch (e: Exception) {
-            logger.severe("onRead exception $socketAddress\n${e.stackTraceToString()}")
+            val read = try {
+                socketChannel!!.read(sReadBuffer)
+            } catch (e: Exception) {
+                logger.severe("onRead exception $socketAddress\n${e.stackTraceToString()}")
 
-            if (e is IOException) {
-                onError(ERR_READ_EXCEPTION, e.message ?: "")
+                if (e is IOException) {
+                    onError(ERR_READ_EXCEPTION, e.message ?: "")
+                }
+                return
             }
-            return
-        }
 
-        if (read < 0) {
-            onError(ERR_PEER_CLOSE, "read $read, peer closed connection: $socketAddress")
-            return
-        } else if (read > 0) {
-            sReadBuffer.flip()
+            if (read < 0) {
+                onError(ERR_PEER_CLOSE, "read $read, peer closed connection: $socketAddress")
+                return
+            } else if (read > 0) {
+                sReadBuffer.flip()
 
-            // copy to new buffer to read other packets
-            val packet = ByteBuffer.allocate(read)
-            packet.put(sReadBuffer)
-            packet.flip()
-            receivePacket(packet)
+                // copy to new buffer to read other packets
+                val packet = ByteBuffer.allocate(read)
+                packet.put(sReadBuffer)
+                packet.flip()
+                receivePacket(packet)
+            } else {
+                break
+            }
         }
     }
 
@@ -244,7 +249,7 @@ open class TcpClientChannel : AbstractChannel {
                     it.put(packet)
                     packet.clear()
                     return@let it
-                }
+                }.order(ByteOrder.LITTLE_ENDIAN)
 
                 // read packet
                 mReceiveBuffer.apply {
