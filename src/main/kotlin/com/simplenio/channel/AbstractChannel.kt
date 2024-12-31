@@ -1,7 +1,6 @@
 package com.simplenio.channel
 
 import com.simplenio.IOHandler
-import com.simplenio.NIOManager
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.util.logging.Logger
